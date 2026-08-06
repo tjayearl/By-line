@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { addDoc, collection } from "firebase/firestore";
 import { FilePlus } from "lucide-react";
+import { db } from "../../lib/firebase";
 import type { Platform } from "../../types";
 
 const PLATFORMS: Platform[] = ["tv_national", "tv_regional", "radio_national", "radio_vernacular", "website", "social"];
@@ -8,10 +10,24 @@ export default function CreateAssignment() {
   const [form, setForm] = useState({
     title: "", brief: "", targetPlatform: "website" as Platform, deadline: "", correspondentId: "",
   });
+  const [message, setMessage] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("New assignment:", form);
+    setMessage("");
+
+    try {
+      await addDoc(collection(db, "assignments"), {
+        ...form,
+        status: "pending_review",
+        createdAt: new Date().toISOString(),
+      });
+      setMessage("Assignment created successfully.");
+      setForm({ title: "", brief: "", targetPlatform: "website", deadline: "", correspondentId: "" });
+    } catch (error) {
+      setMessage("Failed to create assignment.");
+      console.error(error);
+    }
   };
 
   return (
@@ -60,6 +76,7 @@ export default function CreateAssignment() {
           Create & Dispatch
         </button>
       </form>
+      {message && <p className="mt-3 text-sm text-green-600">{message}</p>}
     </div>
   );
 }

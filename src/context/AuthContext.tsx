@@ -2,8 +2,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { auth } from "../lib/firebase";
-import type { AppUser } from "../types";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../lib/firebase";
+import type { AppUser, Role } from "../types";
 
 interface AuthContextType {
   user: AppUser | null;
@@ -21,17 +22,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
+
       if (fbUser) {
         const tokenResult = await fbUser.getIdTokenResult();
+        const claimRole = tokenResult.claims.role as Role | undefined;
+
+        let resolvedRole: Role = "correspondent";
+        let resolvedName = fbUser.displayName ?? fbUser.email ?? "";
+
+        if (claimRole && ["super_admin", "managing_editor", "editor", "correspondent"].includes(claimRole)) {
+          resolvedRole = claimRole;
+        } else {
+          const profileRef = doc(db, "users", fbUser.uid);
+          const profileSnap = await getDoc(profileRef);
+
+          if (profileSnap.exists()) {
+            const profileData = profileSnap.data() as { role?: Role; name?: string } | undefined;
+            if (profileData?.role && ["super_admin", "managing_editor", "editor", "correspondent"].includes(profileData.role)) {
+              resolvedRole = profileData.role;
+            }
+            if (profileData?.name) {
+              resolvedName = profileData.name;
+            }
+          }
+        }
+
         setUser({
           uid: fbUser.uid,
           email: fbUser.email ?? "",
-          role: (tokenResult.claims.role as AppUser["role"]) ?? "correspondent",
-          name: fbUser.displayName ?? fbUser.email ?? "",
+          role: resolvedRole,
+          name: resolvedName,
         });
       } else {
         setUser(null);
       }
+
       setLoading(false);
     });
     return unsub;

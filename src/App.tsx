@@ -3,6 +3,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import Navbar from "./components/Navbar";
 import Login from "./pages/auth/Login";
+import Dashboard from "./pages/Dashboard";
 import RegisterCorrespondent from "./pages/editor/RegisterCorrespondent";
 import CreateAssignment from "./pages/editor/CreateAssignment";
 import ReviewSubmissions from "./pages/editor/ReviewSubmissions";
@@ -29,6 +30,11 @@ export default function App() {
 
           <Route path="/" element={
             <ProtectedRoute>
+              <Layout><Dashboard /></Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/assignments" element={
+            <ProtectedRoute allowedRoles={["correspondent"]}>
               <Layout><CorrespondentDashboard /></Layout>
             </ProtectedRoute>
           } />

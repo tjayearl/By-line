@@ -14,11 +14,23 @@ export default function Login() {
     e.preventDefault();
     setError("");
 
+    console.log("Attempting login with Email:", JSON.stringify(email), "Password:", JSON.stringify(password));
+
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email.trim(), password);
       navigate("/");
-    } catch {
-      setError("Invalid email or password");
+    } catch (err: any) {
+      console.error("Login error:", err);
+      const code = err?.code || "";
+      if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
+        setError("User not found or invalid credentials. Did you create the user in Firebase Auth > Users?");
+      } else if (code === "auth/wrong-password") {
+        setError("Incorrect password.");
+      } else if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
+        setError("Invalid Firebase API Key. Please update your .env file with your actual Firebase config.");
+      } else {
+        setError(err?.message || "Invalid email or password");
+      }
     }
   };
 

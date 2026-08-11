@@ -1,1 +1,47 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --brand-navy: #1A3E6F;
+    --brand-gold: #C8972B;
+    --brand-teal: #0F6E56;
+    --brand-red: #B71C1C;
+    --brand-offwhite: #F7F7F7;
+  }
+}
+
+.bg-brand-navy { background-color: #1A3E6F; }
+.text-brand-navy { color: #1A3E6F; }
+.border-brand-navy { border-color: #1A3E6F; }
+
+.bg-brand-gold { background-color: #C8972B; }
+.text-brand-gold { color: #C8972B; }
+.border-brand-gold { border-color: #C8972B; }
+
+.bg-brand-teal { background-color: #0F6E56; }
+.text-brand-teal { color: #0F6E56; }
+.border-brand-teal { border-color: #0F6E56; }
+
+.bg-brand-red { background-color: #B71C1C; }
+.text-brand-red { color: #B71C1C; }
+.border-brand-red { border-color: #B71C1C; }
+
+.bg-brand-offwhite { background-color: #F7F7F7; }
+
+/* Table styling with alternating off-white rows */
+.table-byline tbody tr:nth-child(even) {
+  background-color: #F7F7F7;
+}
+
+/* Custom scrollbars and sleek aesthetics */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #1A3E6F;
+  border-radius: 3px;
+}

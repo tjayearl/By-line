@@ -82,6 +82,16 @@ export default function Dashboard() {
   const pendingClaims = claims.filter((c) => c.status === "pending");
   const totalPendingPayout = pendingClaims.reduce((sum, c) => sum + c.totalAmountKES, 0);
 
+  // Filter submissions based on user role
+  const visibleSubmissions = submissions.filter((sub) => {
+    // If user is a Correspondent, only show their own submissions
+    if (user?.role === "correspondent") {
+      return sub.correspondentId === user?.uid;
+    }
+    // Editors and Admins see all submissions
+    return true;
+  });
+
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
       {/* Header Bar */}
@@ -223,7 +233,7 @@ export default function Dashboard() {
             <Clock className="w-5 h-5 text-brand-gold" />
             <span>Recent Story Filings & Status</span>
           </div>
-          <span className="text-xs text-brand-gold font-semibold">Total Filings: {submissions.length}</span>
+          <span className="text-xs text-brand-gold font-semibold">Total Filings: {visibleSubmissions.length}</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -239,14 +249,17 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y text-xs sm:text-sm">
-              {submissions.length === 0 ? (
+              {visibleSubmissions.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-gray-500">
-                    No submissions found yet. Click <strong>Submit Filing</strong> or <strong>Create Assignment</strong> to start.
+                    {user?.role === "correspondent" 
+                      ? "No submissions found for you yet. Submit a filing to get started."
+                      : "No submissions found yet. Click Submit Filing or Create Assignment to start."
+                    }
                   </td>
                 </tr>
               ) : (
-                submissions.map((sub) => (
+                visibleSubmissions.map((sub) => (
                   <tr key={sub.id} className="hover:bg-blue-50/50 transition">
                     <td className="p-4 font-semibold text-slate-900">
                       <div className="text-brand-navy font-bold">{sub.assignmentTitle}</div>

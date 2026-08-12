@@ -3,6 +3,8 @@ import { Settings, Save, CheckCircle2, Calculator } from "lucide-react";
 import { loadStoredData, saveStoredData, DEFAULT_RATES } from "../../lib/dataStore";
 import type { Platform, RateCardEntry } from "../../types";
 import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
+import { useAuth } from "../../context/AuthContext";
+import { Navigate } from "react-router-dom";
 
 export default function RateCard() {
   const [rates, setRates] = useState<RateCardEntry[]>([]);
@@ -10,6 +12,13 @@ export default function RateCard() {
 
   // Test Multi-platform sum calculator state
   const [selectedCalcPlatforms, setSelectedCalcPlatforms] = useState<Platform[]>(["tv_national", "radio_national"]);
+
+  const { user } = useAuth();
+
+// ONLY Super Admin and Managing Editor can access the Rate Card
+if (!user || !["super_admin", "managing_editor"].includes(user.role)) {
+  return <Navigate to="/" replace />;
+}
 
   useEffect(() => {
     setRates(loadStoredData("byline_rates_v1", DEFAULT_RATES));

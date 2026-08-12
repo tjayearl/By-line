@@ -2,11 +2,18 @@ import { useState, useEffect } from "react";
 import { UploadCloud, Link as LinkIcon, CheckCircle2, Music, Video, Image, Paperclip, Send } from "lucide-react";
 import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_SUBMISSIONS } from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
+import { Navigate } from "react-router-dom";
 import type { Assignment, MediaFile, Submission } from "../../types";
 import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
 
 export default function SubmitFiling() {
   const { user } = useAuth();
+
+  // Only Correspondents and Super Admin can submit filings
+  if (!user || !["correspondent", "super_admin"].includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [selectedAsgId, setSelectedAsgId] = useState("");
@@ -29,6 +36,16 @@ export default function SubmitFiling() {
       setSelectedAsgId(loadedAsg[0].id);
     }
   }, []);
+
+  // Filter assignments based on user role
+  const availableAssignments = assignments.filter((a) => {
+    // If user is a Correspondent, only show their own assignments
+    if (user?.role === "correspondent") {
+      return a.correspondentId === user?.uid;
+    }
+    // Super Admin sees all assignments
+    return true;
+  });
 
   const handleSimulateAddFile = (type: "audio" | "video" | "image" | "document") => {
     const ext = type === "audio" ? "mp3" : type === "video" ? "mp4" : type === "image" ? "jpg" : "pdf";
@@ -107,11 +124,15 @@ export default function SubmitFiling() {
             className="w-full border rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white font-semibold"
             required
           >
-            {assignments.map((a) => (
-              <option key={a.id} value={a.id}>
-                [{a.id}] {a.title}
-              </option>
-            ))}
+            {availableAssignments.length === 0 ? (
+              <option value="">No assignments available for you</option>
+            ) : (
+              availableAssignments.map((a) => (
+                <option key={a.id} value={a.id}>
+                  [{a.id}] {a.title}
+                </option>
+              ))
+            )}
           </select>
         </div>
 

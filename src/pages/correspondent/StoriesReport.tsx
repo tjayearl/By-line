@@ -19,10 +19,18 @@ export default function StoriesReport() {
     setClaims(loadedClaims);
   }, []);
 
-  const verifiedSubmissions = submissions.filter(
-    (s) => s.status === "approved" && (user?.role === "correspondent" ? s.correspondentId === user.uid || true : true)
-  );
-
+ const verifiedSubmissions = submissions.filter((s) => {
+  // Only include approved submissions
+  if (s.status !== "approved") return false;
+  
+  // If user is a Correspondent, only show their own submissions
+  if (user?.role === "correspondent") {
+    return s.correspondentId === user?.uid;
+  }
+  
+  // Editors and Admins see all approved submissions
+  return true;
+});
   const grandTotalCalculated = verifiedSubmissions.reduce((sum, s) => sum + s.calculatedAmountKES, 0);
 
   // Active claim

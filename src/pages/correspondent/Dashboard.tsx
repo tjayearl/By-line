@@ -15,7 +15,14 @@ export default function CorrespondentDashboard() {
     setAssignments(loadedAsg);
   }, []);
 
-  const myAssignments = assignments.filter((a) => a.correspondentId === user?.uid || true);
+  const myAssignments = assignments.filter((a) => {
+  // If user is a Correspondent, only show their assignments
+  if (user?.role === "correspondent") {
+    return a.correspondentId === user?.uid;
+  }
+  // Editors and Admins see all assignments
+  return true;
+});
 
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">

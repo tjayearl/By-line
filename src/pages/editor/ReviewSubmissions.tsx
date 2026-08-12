@@ -6,6 +6,8 @@ import {
 } from "../../lib/dataStore";
 import type { Platform, RateCardEntry, Submission } from "../../types";
 import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
+import { useAuth } from "../../context/AuthContext";
+import { Navigate } from "react-router-dom";
 
 const PLATFORMS_LIST: { key: Platform; label: string }[] = [
   { key: "tv_national", label: "TV Package (National)" },
@@ -17,6 +19,16 @@ const PLATFORMS_LIST: { key: Platform; label: string }[] = [
 ];
 
 export default function ReviewSubmissions() {
+  const { user } = useAuth();
+
+  // Check if user is authorized to access this page at all
+  if (!user || !["super_admin", "managing_editor", "editor"].includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Determine if user is Managing Editor (limited access)
+  const isManagingEditor = user.role === "managing_editor";
+
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [rates, setRates] = useState<RateCardEntry[]>([]);
   const [selectedSub, setSelectedSub] = useState<Submission | null>(null);
@@ -62,7 +74,7 @@ export default function ReviewSubmissions() {
       ...selectedSub,
       status,
       editorialFeedback: feedbackInput,
-      reviewedBy: "Desk Editor",
+      reviewedBy: user?.name || "Desk Editor",
       reviewedAt: new Date().toISOString(),
       publishedPlatforms: selectedPublishedPlatforms,
       isPublished: selectedPublishedPlatforms.length > 0,
@@ -83,7 +95,7 @@ export default function ReviewSubmissions() {
     const updatedSub: Submission = {
       ...selectedSub,
       proofConfirmed: confirmStatus,
-      proofConfirmedBy: "Desk Editor",
+      proofConfirmedBy: user?.name || "Desk Editor",
       proofConfirmedAt: new Date().toISOString(),
     };
 
@@ -109,6 +121,15 @@ export default function ReviewSubmissions() {
           </p>
         </div>
       </div>
+
+      {/* View-Only Mode Notice for Managing Editor */}
+      {isManagingEditor && (
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-lg shadow-sm">
+          <p className="text-xs text-amber-700 font-semibold">
+            👁️ View-Only Mode: As Managing Editor, you can confirm Published/Aired status but cannot approve, decline, or request revisions.
+          </p>
+        </div>
+      )}
 
       <EditorialDirectiveNotice />
 
@@ -324,28 +345,38 @@ export default function ReviewSubmissions() {
                   className="w-full border rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy"
                 />
 
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <button
-                    onClick={() => updateSubmissionStatus("approved")}
-                    className="bg-brand-teal hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Approve Story Filing
-                  </button>
+                {/* Approve/Decline/Revision Buttons - HIDDEN for Managing Editor */}
+                {!isManagingEditor && (
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    <button
+                      onClick={() => updateSubmissionStatus("approved")}
+                      className="bg-brand-teal hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Approve Story Filing
+                    </button>
 
-                  <button
-                    onClick={() => updateSubmissionStatus("revision_needed")}
-                    className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
-                  >
-                    <AlertCircle className="w-4 h-4" /> Request Revision
-                  </button>
+                    <button
+                      onClick={() => updateSubmissionStatus("revision_needed")}
+                      className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
+                    >
+                      <AlertCircle className="w-4 h-4" /> Request Revision
+                    </button>
 
-                  <button
-                    onClick={() => updateSubmissionStatus("declined")}
-                    className="bg-brand-red hover:bg-red-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
-                  >
-                    <XCircle className="w-4 h-4" /> Decline Story
-                  </button>
-                </div>
+                    <button
+                      onClick={() => updateSubmissionStatus("declined")}
+                      className="bg-brand-red hover:bg-red-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5"
+                    >
+                      <XCircle className="w-4 h-4" /> Decline Story
+                    </button>
+                  </div>
+                )}
+
+                {/* Show message for Managing Editor */}
+                {isManagingEditor && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
+                    As Managing Editor, you can view submissions and confirm Published/Aired status. Approve/Decline/Revision actions are restricted to Desk Editors.
+                  </div>
+                )}
               </div>
 
               {actionMessage && (

@@ -3,6 +3,8 @@ import { FilePlus, Send } from "lucide-react";
 import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
 import type { Assignment, Correspondent, Platform } from "../../types";
 import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
+import { useAuth } from "../../context/AuthContext";
+import { Navigate } from "react-router-dom";
 
 const PLATFORM_OPTIONS: { key: Platform; label: string; icon: string }[] = [
   { key: "tv_national", label: "TV Package (National)", icon: "📺" },
@@ -24,6 +26,13 @@ export default function CreateAssignment() {
   });
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["tv_national"]);
   const [message, setMessage] = useState<string | null>(null);
+
+  const { user } = useAuth();
+
+// ONLY Super Admin and Desk Editor can create assignments
+if (!user || !["super_admin", "editor"].includes(user.role)) {
+  return <Navigate to="/" replace />;
+}
 
   useEffect(() => {
     setAssignments(loadStoredData("byline_assignments_v1", INITIAL_ASSIGNMENTS));
@@ -58,7 +67,7 @@ export default function CreateAssignment() {
       deadline: form.deadline || new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
       correspondentId: form.correspondentId,
       correspondentName: assignedCorr ? assignedCorr.name : "Assigned Correspondent",
-      assignedBy: "Desk Editor",
+      assignedBy: user?.name || "Desk Editor",
       createdAt: new Date().toISOString(),
       status: "assigned",
     };

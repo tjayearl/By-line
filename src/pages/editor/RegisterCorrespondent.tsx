@@ -6,6 +6,8 @@ import { auth, db } from "../../lib/firebase";
 import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
 import type { Correspondent } from "../../types";
 import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
+import { useAuth } from "../../context/AuthContext";
+import { Navigate } from "react-router-dom";
 
 export default function RegisterCorrespondent() {
   const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
@@ -22,6 +24,13 @@ export default function RegisterCorrespondent() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+
+  const { user } = useAuth();
+
+// ONLY Super Admin and Desk Editor can register correspondents
+if (!user || !["super_admin", "editor"].includes(user.role)) {
+  return <Navigate to="/" replace />;
+}
 
   useEffect(() => {
     setCorrespondents(loadStoredData("byline_correspondents_v1", INITIAL_CORRESPONDENTS));
@@ -69,7 +78,7 @@ export default function RegisterCorrespondent() {
         specialisation: form.specialisation,
         county: form.county || "Nairobi",
         registeredAt: new Date().toISOString(),
-        registeredBy: "Desk Editor",
+       registeredBy: user?.name || "Desk Editor",
       };
 
       const updated = [newCorr, ...correspondents];

@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import type { AppUser, Role } from "../types";
+import { usersList } from "../data/mockData";
 
 interface AuthContextType {
   user: AppUser | null;
@@ -12,7 +13,8 @@ interface AuthContextType {
   loading: boolean;
   demoRole: Role | null;
   setDemoRole: (role: Role | null) => void;
-  switchRole: (role: Role) => void;
+  switchRole: (role: Role | null) => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -22,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   demoRole: null,
   setDemoRole: () => {},
   switchRole: () => {},
+  logout: async () => {},
 });
 
 // Demo accounts for instant 1-click role testing
@@ -51,14 +54,30 @@ export const DEMO_USERS: Record<Role, AppUser> = {
     role: "correspondent",
     phone: "+254 712 345 678",
   },
+  adManager: {
+    uid: "demo-ad-manager",
+    email: "admanager@adboard.com",
+    name: "Alex Kimani (Ad Operations Manager)",
+    role: "adManager",
+  },
+  finance: {
+    uid: "demo-finance",
+    email: "finance@adboard.com",
+    name: "Grace Muthoni (Finance Controller)",
+    role: "finance",
+  },
+  digitalOps: {
+    uid: "demo-digital-ops",
+    email: "ops@adboard.com",
+    name: "David Ochieng (Digital Operations Lead)",
+    role: "digitalOps",
+  },
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [realUser, setRealUser] = useState<AppUser | null>(null);
-  const [demoRole, setDemoRole] = useState<Role | null>(() => {
-    return (localStorage.getItem("byline_demo_role") as Role) || null;
-  });
+  const [demoRole, setDemoRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -73,19 +92,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const tokenResult = await fbUser.getIdTokenResult();
           const claimRole = tokenResult.claims.role as Role | undefined;
 
-          if (claimRole && ["super_admin", "managing_editor", "editor", "correspondent"].includes(claimRole)) {
+          if (claimRole) {
             resolvedRole = claimRole;
           } else {
-            const profileRef = doc(db, "users", fbUser.uid);
-            const profileSnap = await getDoc(profileRef);
-
-            if (profileSnap.exists()) {
-              const profileData = profileSnap.data() as { role?: Role; name?: string } | undefined;
-              if (profileData?.role && ["super_admin", "managing_editor", "editor", "correspondent"].includes(profileData.role)) {
-                resolvedRole = profileData.role;
+            const savedRole = localStorage.getItem("role") as Role | null;
+            if (savedRole) {
+              resolvedRole = savedRole;
+            } else if (fbUser.email) {
+              const mockUser = usersList.find((u) => u.email.toLowerCase() === fbUser.email?.toLowerCase());
+              if (mockUser) {
+                resolvedRole = mockUser.role as Role;
+                if (mockUser.name) resolvedName = mockUser.name;
               }
-              if (profileData?.name) {
-                resolvedName = profileData.name;
+            } else {
+              const profileRef = doc(db, "users", fbUser.uid);
+              const profileSnap = await getDoc(profileRef);
+
+              if (profileSnap.exists()) {
+                const profileData = profileSnap.data() as { role?: Role; name?: string } | undefined;
+                if (profileData?.role) {
+                  resolvedRole = profileData.role;
+                }
+                if (profileData?.name) {
+                  resolvedName = profileData.name;
+                }
               }
             }
           }
@@ -108,17 +138,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  const switchRole = (role: Role) => {
+  const switchRole = (role: Role | null) => {
     setDemoRole(role);
-    localStorage.setItem("byline_demo_role", role);
+    if (role) {
+      localStorage.setItem("byline_demo_role", role);
+      localStorage.setItem("role", role);
+    } else {
+      localStorage.removeItem("byline_demo_role");
+      localStorage.removeItem("role");
+    }
   };
 
-  // Determine active user (demo role takes precedence for testing, or real authenticated user, or default demo correspondent)
-  const activeUser: AppUser | null = demoRole
-    ? DEMO_USERS[demoRole]
-    : realUser
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error("Signout error:", err);
+    } finally {
+      setRealUser(null);
+      setDemoRole(null);
+      localStorage.removeItem("byline_demo_role");
+      localStorage.removeItem("role");
+    }
+  };
+
+  // Determine active user:
+  // 1. Real authenticated Firebase user
+  // 2. Explicit demo role selection if set
+  // 3. Otherwise null -> ProtectedRoute will redirect to /login
+  const activeUser: AppUser | null = realUser
     ? realUser
-    : DEMO_USERS["super_admin"]; // Default active session for instant review
+    : demoRole
+    ? DEMO_USERS[demoRole] || null
+    : null;
 
   return (
     <AuthContext.Provider
@@ -129,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         demoRole,
         setDemoRole,
         switchRole,
+        logout,
       }}
     >
       {children}

@@ -1,8 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Newspaper, LogOut, UserCheck, Sparkles } from "lucide-react";
-import { signOut } from "firebase/auth";
 import { useAuth } from "../context/AuthContext";
-import { auth } from "../lib/firebase";
 import type { Role } from "../types";
 
 const ROLE_LABELS: Record<Role, { title: string; desc: string }> = {
@@ -10,16 +8,18 @@ const ROLE_LABELS: Record<Role, { title: string; desc: string }> = {
   managing_editor: { title: "Managing Editor", desc: "Rate Cards & Publication Sign-off" },
   editor: { title: "Desk Editor", desc: "Assignments & Editorial Review" },
   correspondent: { title: "Correspondent", desc: "Field Reporting & Invoice Claims" },
+  adManager: { title: "Ad Manager", desc: "Advertising & Campaign Approvals" },
+  finance: { title: "Finance", desc: "Billing, Invoices & Claims Settlement" },
+  digitalOps: { title: "Digital Ops", desc: "Inventory & Campaign Operations" },
 };
 
 export default function Navbar() {
-  const { user, firebaseUser, switchRole } = useAuth();
+  const { user, switchRole, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      switchRole("correspondent");
+      await logout();
       navigate("/login");
     } catch (err) {
       console.error("Signout error:", err);
@@ -86,16 +86,14 @@ export default function Navbar() {
                 {user.role.replace("_", " ")}
               </span>
 
-              {firebaseUser && (
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-1 bg-red-900/80 hover:bg-brand-red text-white text-xs px-3 py-1.5 rounded-md transition shadow-sm"
-                  title="Sign out of Firebase"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">Sign Out</span>
-                </button>
-              )}
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 bg-red-900/80 hover:bg-brand-red text-white text-xs px-3 py-1.5 rounded-md transition shadow-sm cursor-pointer"
+                title="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Sign Out</span>
+              </button>
             </div>
           )}
         </div>

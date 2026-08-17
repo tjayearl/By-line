@@ -1,4 +1,11 @@
-export type Role = "super_admin" | "managing_editor" | "editor" | "correspondent";
+export type Role =
+  | "super_admin"
+  | "managing_editor"
+  | "editor"
+  | "correspondent"
+  | "adManager"
+  | "finance"
+  | "digitalOps";
 
 export type Platform =
   | "tv_national"

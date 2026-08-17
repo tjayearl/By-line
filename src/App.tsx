@@ -45,6 +45,22 @@ export default function App() {
             }
           />
           <Route
+            path="/approvals"
+            element={
+              <ProtectedRoute>
+                <Layout><ReviewSubmissions /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/operations"
+            element={
+              <ProtectedRoute>
+                <Layout><CorrespondentDashboard /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/assignments"
             element={
               <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin"]}>

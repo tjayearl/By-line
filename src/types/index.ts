@@ -25,6 +25,24 @@ export interface AppUser {
   role: Role;
   name: string;
   phone?: string;
+  department?: string;
+}
+
+export interface SystemUser {
+  id: string;
+  uid?: string;
+  name: string;
+  email: string;
+  role: Role;
+  department?: string;
+  phone?: string;
+  idNumber?: string;
+  bankDetails?: string;
+  specialisation?: string;
+  county?: string;
+  registeredAt?: string;
+  registeredBy?: string;
+  status?: "active" | "inactive";
 }
 
 export interface Correspondent {

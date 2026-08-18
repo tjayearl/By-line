@@ -95,16 +95,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (claimRole) {
             resolvedRole = claimRole;
           } else {
-            const savedRole = localStorage.getItem("role") as Role | null;
-            if (savedRole) {
-              resolvedRole = savedRole;
-            } else if (fbUser.email) {
-              const mockUser = usersList.find((u) => u.email.toLowerCase() === fbUser.email?.toLowerCase());
-              if (mockUser) {
-                resolvedRole = mockUser.role as Role;
-                if (mockUser.name) resolvedName = mockUser.name;
-              }
-            } else {
+            // 1. Check Firestore user profile first
+            let profileFound = false;
+            try {
               const profileRef = doc(db, "users", fbUser.uid);
               const profileSnap = await getDoc(profileRef);
 
@@ -112,10 +105,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const profileData = profileSnap.data() as { role?: Role; name?: string } | undefined;
                 if (profileData?.role) {
                   resolvedRole = profileData.role;
+                  profileFound = true;
                 }
                 if (profileData?.name) {
                   resolvedName = profileData.name;
                 }
+              }
+            } catch (fsErr) {
+              console.warn("Could not query Firestore user profile:", fsErr);
+            }
+
+            // 2. If not found in Firestore, check mock user list
+            if (!profileFound && fbUser.email) {
+              const mockUser = usersList.find((u) => u.email.toLowerCase() === fbUser.email?.toLowerCase());
+              if (mockUser) {
+                resolvedRole = mockUser.role as Role;
+                if (mockUser.name) resolvedName = mockUser.name;
               }
             }
           }

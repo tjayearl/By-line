@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { UserPlus, CheckCircle2, ShieldCheck, Search } from "lucide-react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../../lib/firebase";
+import { db, createSecondaryUser } from "../../lib/firebase";
+import { sendUserWelcomeAndActivationEmail } from "../../lib/emailService";
 import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
 import type { Correspondent } from "../../types";
-import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
 
@@ -49,13 +48,12 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
       let createdUid = `corr-${Date.now()}`;
 
       try {
-        const userCred = await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
-        createdUid = userCred.user.uid;
+        createdUid = await createSecondaryUser(form.email.trim(), form.password);
 
         await setDoc(doc(db, "users", createdUid), {
           uid: createdUid,
           name: form.name,
-          email: form.email,
+          email: form.email.trim(),
           role: "correspondent",
           phone: form.phone,
           idNumber: form.idNumber,
@@ -78,16 +76,26 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
         specialisation: form.specialisation,
         county: form.county || "Nairobi",
         registeredAt: new Date().toISOString(),
-       registeredBy: user?.name || "Desk Editor",
+        registeredBy: user?.name || "Desk Editor",
       };
 
       const updated = [newCorr, ...correspondents];
       setCorrespondents(updated);
       saveStoredData("byline_correspondents_v1", updated);
 
+      // Dispatch welcome and activation email
+      await sendUserWelcomeAndActivationEmail({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        role: "correspondent",
+        roleTitle: "Correspondent",
+        password: form.password,
+        registeredBy: user?.name || "Desk Editor",
+      });
+
       setMessage({
         type: "success",
-        text: `Successfully registered ${form.name}. Credentials sent: ${form.email} (Password: ${form.password})`,
+        text: `Successfully registered ${form.name}. Verification link & credentials dispatched to ${form.email} for account activation.`,
       });
 
       setForm({
@@ -128,8 +136,6 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
           </p>
         </div>
       </div>
-
-      <EditorialDirectiveNotice />
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Registration Form */}

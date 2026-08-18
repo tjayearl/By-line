@@ -3,8 +3,9 @@ import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail
 } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-import { auth } from "../../firebase";
+import { auth, db } from "../../firebase";
 import { usersList } from "../../data/mockData";
 
 export default function Login() {
@@ -40,13 +41,28 @@ export default function Login() {
       console.log("USER CLAIMS:", tokenResult.claims);
       console.log("ROLE:", role);
 
-      // Fallback to mock user list role if no custom claim exists
+      // 1. Fallback to mock user list role if no custom claim exists
       if (!role && user.email) {
         const mockUser = usersList.find(
           (u) => u.email.toLowerCase() === user.email?.toLowerCase()
         );
         if (mockUser) {
           role = mockUser.role;
+        }
+      }
+
+      // 2. Fallback to Firestore user profile if registered dynamically
+      if (!role && user.uid) {
+        try {
+          const profileSnap = await getDoc(doc(db, "users", user.uid));
+          if (profileSnap.exists()) {
+            const profileData = profileSnap.data();
+            if (profileData?.role) {
+              role = profileData.role;
+            }
+          }
+        } catch (fsErr) {
+          console.warn("Firestore role lookup error in login:", fsErr);
         }
       }
 

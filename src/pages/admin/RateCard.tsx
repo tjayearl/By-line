@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Settings, Save, CheckCircle2, Calculator } from "lucide-react";
 import { loadStoredData, saveStoredData, DEFAULT_RATES } from "../../lib/dataStore";
 import type { Platform, RateCardEntry } from "../../types";
-import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
 
@@ -68,8 +67,6 @@ if (!user || !["super_admin", "managing_editor"].includes(user.role)) {
           <span>Save Active Rate Card</span>
         </button>
       </div>
-
-      <EditorialDirectiveNotice />
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Rate Card Table */}

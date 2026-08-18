@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   UserPlus, FilePlus, ClipboardCheck, Settings,
   UploadCloud, FileText, Clock, Newspaper, CheckCircle2,
-  DollarSign, ArrowRight
+  DollarSign, ArrowRight, Users
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import EditorialDirectiveNotice from "../components/EditorialDirectiveNotice";
@@ -122,8 +122,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Red Mandatory Directive Notice */}
-      <EditorialDirectiveNotice />
+      {/* Red Mandatory Directive Notice - Correspondent Only */}
+      {isCorrespondent && <EditorialDirectiveNotice />}
 
       {/* Key Metrics Stats Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -214,7 +214,16 @@ export default function Dashboard() {
         )}
 
         {isManagement && (
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {user.role === "super_admin" && (
+              <ActionCard
+                to="/admin/users"
+                icon={<Users className="w-6 h-6" />}
+                title="User Administration & Roles"
+                desc="Full system access: manage Super Admins, Managing Editors, Desk Editors, Correspondents, and Finance accounts."
+                tag="Super Admin"
+              />
+            )}
             <ActionCard
               to="/admin/rates"
               icon={<Settings className="w-6 h-6" />}

@@ -41,6 +41,20 @@ export const usersList: MockUser[] = [
   // Newsroom / Byline Roles
   {
     id: "usr-005",
+    email: "admin@kbc.com",
+    name: "System Admin (KBC)",
+    role: "super_admin",
+    department: "Digital Directorate",
+  },
+  {
+    id: "usr-005b",
+    email: "admin@kbc.co.ke",
+    name: "System Admin (KBC)",
+    role: "super_admin",
+    department: "Digital Directorate",
+  },
+  {
+    id: "usr-005c",
     email: "mungai.charles@kbc.co.ke",
     name: "Mungai Charles (Chief Digital)",
     role: "super_admin",

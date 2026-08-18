@@ -11,6 +11,7 @@ import CorrespondentDashboard from "./pages/correspondent/Dashboard";
 import SubmitFiling from "./pages/correspondent/SubmitFiling";
 import StoriesReport from "./pages/correspondent/StoriesReport";
 import RateCard from "./pages/admin/RateCard";
+import UserManagement from "./pages/admin/UserManagement";
 
 function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -115,6 +116,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={["managing_editor", "super_admin"]}>
                 <Layout><RateCard /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <ProtectedRoute allowedRoles={["super_admin"]}>
+                <Layout><UserManagement /></Layout>
               </ProtectedRoute>
             }
           />

@@ -66,6 +66,7 @@ export interface Assignment {
   deadline: string;
   correspondentId: string;
   correspondentName?: string;
+  correspondentEmail?: string;
   assignedBy: string;
   createdAt: string;
   status: "assigned" | "submitted" | "completed";

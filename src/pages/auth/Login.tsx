@@ -137,16 +137,16 @@ export default function Login() {
 
       <img
         src="/logo.png"
-        alt="Digital AdBoard Logo"
+        alt="Byline Logo"
         style={styles.logo}
         onError={(e) => {
           (e.target as HTMLElement).style.display = "none";
         }}
       />
 
-      <h1 style={styles.title}>Digital AdBoard</h1>
+      <h1 style={styles.title}>Byline</h1>
       <p style={styles.subtitle}>
-        Advertising Booking & Order Management
+        Contributor Portal
       </p>
 
       <form style={styles.card} onSubmit={handleLogin}>

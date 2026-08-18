@@ -4,7 +4,6 @@ import { loadStoredData, saveStoredData, INITIAL_SUBMISSIONS, INITIAL_CLAIMS } f
 import { useAuth } from "../../context/AuthContext";
 import { generateStoriesReportPDF } from "../../lib/pdfReportGenerator";
 import type { PaymentClaim, Submission } from "../../types";
-import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
 
 export default function StoriesReport() {
   const { user } = useAuth();
@@ -87,8 +86,6 @@ export default function StoriesReport() {
           <span>Download PDF Report</span>
         </button>
       </div>
-
-      <EditorialDirectiveNotice />
 
       {/* Summary Cards */}
       <div className="grid sm:grid-cols-3 gap-4">

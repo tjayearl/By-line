@@ -5,7 +5,6 @@ import {
   calculatePaymentForPlatforms
 } from "../../lib/dataStore";
 import type { Platform, RateCardEntry, Submission } from "../../types";
-import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
 
@@ -130,8 +129,6 @@ export default function ReviewSubmissions() {
           </p>
         </div>
       )}
-
-      <EditorialDirectiveNotice />
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Left Submissions List Sidebar */}

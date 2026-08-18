@@ -5,8 +5,9 @@ import {
   UploadCloud, FileText, Clock, Newspaper, CheckCircle2,
   DollarSign, ArrowRight, Users
 } from "lucide-react";
+import { getDocs, collection } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";
-import EditorialDirectiveNotice from "../components/EditorialDirectiveNotice";
 import {
   loadStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS,
   INITIAL_SUBMISSIONS, INITIAL_CLAIMS
@@ -66,10 +67,76 @@ export default function Dashboard() {
   const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
 
   useEffect(() => {
-    setAssignments(loadStoredData("byline_assignments_v1", INITIAL_ASSIGNMENTS));
-    setSubmissions(loadStoredData("byline_submissions_v1", INITIAL_SUBMISSIONS));
-    setClaims(loadStoredData("byline_claims_v1", INITIAL_CLAIMS));
-    setCorrespondents(loadStoredData("byline_correspondents_v1", INITIAL_CORRESPONDENTS));
+    const fetchData = async () => {
+      // 1. Assignments
+      const asgMap = new Map<string, Assignment>();
+      INITIAL_ASSIGNMENTS.forEach((a) => asgMap.set(a.id, a));
+      const localAsg = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+      localAsg.forEach((a) => asgMap.set(a.id, a));
+
+      try {
+        const asgSnap = await getDocs(collection(db, "assignments"));
+        asgSnap.forEach((d) => {
+          const a = d.data() as Assignment;
+          if (a && (a.id || d.id)) asgMap.set(a.id || d.id, { ...a, id: a.id || d.id });
+        });
+      } catch (fsErr) {
+        console.warn("Firestore asg notice:", fsErr);
+      }
+      setAssignments(Array.from(asgMap.values()));
+
+      // 2. Submissions
+      const subMap = new Map<string, Submission>();
+      INITIAL_SUBMISSIONS.forEach((s) => subMap.set(s.id, s));
+      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", []);
+      localSubs.forEach((s) => subMap.set(s.id, s));
+
+      try {
+        const subSnap = await getDocs(collection(db, "submissions"));
+        subSnap.forEach((d) => {
+          const s = d.data() as Submission;
+          if (s && (s.id || d.id)) subMap.set(s.id || d.id, { ...s, id: s.id || d.id });
+        });
+      } catch (fsErr) {
+        console.warn("Firestore subs notice:", fsErr);
+      }
+      setSubmissions(Array.from(subMap.values()));
+
+      // 3. Claims
+      setClaims(loadStoredData("byline_claims_v1", INITIAL_CLAIMS));
+
+      // 4. Correspondents
+      const corrMap = new Map<string, Correspondent>();
+      INITIAL_CORRESPONDENTS.forEach((c) => corrMap.set(c.email.toLowerCase(), c));
+      const localCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", []);
+      localCorrs.forEach((c) => {
+        if (c.email) corrMap.set(c.email.toLowerCase(), c);
+      });
+      try {
+        const uSnap = await getDocs(collection(db, "users"));
+        uSnap.forEach((d) => {
+          const u = d.data() as any;
+          if (u.role === "correspondent" && u.email) {
+            corrMap.set(u.email.toLowerCase(), {
+              id: d.id,
+              name: u.name || u.email,
+              email: u.email,
+              phone: u.phone || "",
+              idNumber: u.idNumber || "",
+              bankDetails: u.bankDetails || "",
+              specialisation: u.specialisation || "News",
+              county: u.county || "Nairobi",
+              registeredAt: u.registeredAt || new Date().toISOString(),
+            });
+          }
+        });
+      } catch (fsErr) {
+        console.warn("Firestore users notice:", fsErr);
+      }
+      setCorrespondents(Array.from(corrMap.values()));
+    };
+
+    fetchData();
   }, []);
 
   if (!user) return null;
@@ -78,66 +145,63 @@ export default function Dashboard() {
   const isEditor = user.role === "editor" || user.role === "managing_editor" || user.role === "super_admin";
   const isManagement = user.role === "managing_editor" || user.role === "super_admin";
 
+  const userEmailLower = (user.email || "").toLowerCase().trim();
+
+  // Correspondent specific assignments
+  const myAssignments = assignments.filter((a) => {
+    if (!isCorrespondent) return true;
+    const asgEmail = (a.correspondentEmail || "").toLowerCase().trim();
+    if (asgEmail && userEmailLower && asgEmail === userEmailLower) return true;
+    if (a.correspondentId && (a.correspondentId === user.uid || a.correspondentId === userEmailLower)) return true;
+    if (a.correspondentName && user.name && a.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
+    return false;
+  });
+
   const pendingSubmissions = submissions.filter((s) => s.status === "pending_review");
   const pendingClaims = claims.filter((c) => c.status === "pending");
   const totalPendingPayout = pendingClaims.reduce((sum, c) => sum + c.totalAmountKES, 0);
 
   // Filter submissions based on user role
   const visibleSubmissions = submissions.filter((sub) => {
-    // If user is a Correspondent, only show their own submissions
-    if (user?.role === "correspondent") {
-      return sub.correspondentId === user?.uid;
+    if (isCorrespondent) {
+      if (sub.correspondentId === user.uid || sub.correspondentId === userEmailLower) return true;
+      if (sub.correspondentName && user.name && sub.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
+      return false;
     }
-    // Editors and Admins see all submissions
     return true;
   });
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
-      {/* Header Bar */}
-      <div className="bg-brand-navy text-white p-6 rounded-2xl shadow-lg border-b-4 border-brand-gold flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Dashboard Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-gray-200">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="bg-brand-teal text-white text-xs font-bold px-2.5 py-0.5 rounded-full uppercase">
-              Active Session
-            </span>
-            <span className="text-brand-gold text-xs font-semibold">Kenya Broadcasting Corporation</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black mt-1 text-white tracking-tight">
-            Welcome, {user.name || user.email}
-          </h1>
-          <p className="text-xs sm:text-sm text-blue-200 mt-1 capitalize">
-            Role: <span className="text-brand-gold font-bold">{user.role.replace("_", " ")}</span> &bull; Byline System of Record
-          </p>
+          <h1 className="text-2xl font-black text-brand-navy tracking-tight">Editorial Overview & Dashboard</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Real-time story assignments, contributor filings, and claims tracking</p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Link
-            to={isCorrespondent ? "/submit" : "/editor/assign"}
-            className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2.5 rounded-xl shadow transition text-sm flex items-center gap-2"
-          >
-            {isCorrespondent ? <UploadCloud className="w-4 h-4" /> : <FilePlus className="w-4 h-4" />}
-            <span>{isCorrespondent ? "Submit Filing" : "New Story Assignment"}</span>
-          </Link>
-        </div>
+        <Link
+          to={isCorrespondent ? "/submit" : "/editor/assign"}
+          className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2.5 rounded-xl shadow transition text-xs sm:text-sm flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+        >
+          {isCorrespondent ? <UploadCloud className="w-4 h-4" /> : <FilePlus className="w-4 h-4" />}
+          <span>{isCorrespondent ? "Submit Filing" : "New Story Assignment"}</span>
+        </Link>
       </div>
-
-      {/* Red Mandatory Directive Notice - Correspondent Only */}
-      {isCorrespondent && <EditorialDirectiveNotice />}
 
       {/* Key Metrics Stats Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title="Active Correspondents"
-          value={correspondents.length}
-          sub="Registered field journalists"
-          icon={<UserPlus className="w-6 h-6" />}
+          title={isCorrespondent ? "My Assignments" : "Active Correspondents"}
+          value={isCorrespondent ? myAssignments.length : correspondents.length}
+          sub={isCorrespondent ? "Commissioned story briefs" : "Registered field journalists"}
+          icon={isCorrespondent ? <Clock className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
         />
         <StatCard
-          title="Story Assignments"
-          value={assignments.length}
-          sub="Dispatched editorial briefs"
-          icon={<Clock className="w-6 h-6" />}
+          title={isCorrespondent ? "My Story Filings" : "Story Assignments"}
+          value={isCorrespondent ? visibleSubmissions.length : assignments.length}
+          sub={isCorrespondent ? "Filed reports in portal" : "Dispatched editorial briefs"}
+          icon={isCorrespondent ? <UploadCloud className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
         />
         <StatCard
           title="Pending Reviews"

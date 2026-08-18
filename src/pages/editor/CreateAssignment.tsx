@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { FilePlus, Send } from "lucide-react";
+import { FilePlus, Send, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
+import { doc, getDocs, collection, setDoc } from "firebase/firestore";
+import { db } from "../../lib/firebase";
 import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
+import { sendAssignmentCommissionEmail } from "../../lib/emailService";
 import type { Assignment, Correspondent, Platform } from "../../types";
-import EditorialDirectiveNotice from "../../components/EditorialDirectiveNotice";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
 
@@ -25,22 +27,88 @@ export default function CreateAssignment() {
     correspondentId: "",
   });
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["tv_national"]);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const { user } = useAuth();
 
-// ONLY Super Admin and Desk Editor can create assignments
-if (!user || !["super_admin", "editor"].includes(user.role)) {
-  return <Navigate to="/" replace />;
-}
+  // ONLY Super Admin and Desk Editor can create assignments
+  if (!user || !["super_admin", "editor"].includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
+  const loadAllData = async () => {
+    try {
+      // 1. Load Correspondents from Firestore & Local Storage
+      const corrMap = new Map<string, Correspondent>();
+      
+      // Default initial mock correspondents
+      INITIAL_CORRESPONDENTS.forEach((c) => corrMap.set(c.email.toLowerCase(), c));
+
+      // Local stored correspondents
+      const localCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", []);
+      localCorrs.forEach((c) => {
+        if (c.email) corrMap.set(c.email.toLowerCase(), c);
+      });
+
+      // Firestore users (correspondents)
+      try {
+        const usersSnap = await getDocs(collection(db, "users"));
+        usersSnap.forEach((d) => {
+          const u = d.data() as any;
+          if (u.role === "correspondent" && u.email) {
+            corrMap.set(u.email.toLowerCase(), {
+              id: d.id,
+              name: u.name || u.email,
+              email: u.email,
+              phone: u.phone || "",
+              idNumber: u.idNumber || "",
+              bankDetails: u.bankDetails || "",
+              specialisation: u.specialisation || "General News",
+              county: u.county || "Nairobi",
+              registeredAt: u.registeredAt || new Date().toISOString(),
+              registeredBy: u.registeredBy || "Desk Editor",
+            });
+          }
+        });
+      } catch (fsErr) {
+        console.warn("Firestore correspondents lookup notice:", fsErr);
+      }
+
+      const mergedCorrs = Array.from(corrMap.values());
+      setCorrespondents(mergedCorrs);
+      if (mergedCorrs.length > 0 && !form.correspondentId) {
+        setForm((prev) => ({ ...prev, correspondentId: mergedCorrs[0].id }));
+      }
+
+      // 2. Load Assignments from Firestore & Local Storage
+      const asgMap = new Map<string, Assignment>();
+      INITIAL_ASSIGNMENTS.forEach((a) => asgMap.set(a.id, a));
+
+      const localAsg = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+      localAsg.forEach((a) => asgMap.set(a.id, a));
+
+      try {
+        const asgSnap = await getDocs(collection(db, "assignments"));
+        asgSnap.forEach((d) => {
+          const a = d.data() as Assignment;
+          if (a && (a.id || d.id)) {
+            asgMap.set(a.id || d.id, { ...a, id: a.id || d.id });
+          }
+        });
+      } catch (fsAsgErr) {
+        console.warn("Firestore assignments lookup notice:", fsAsgErr);
+      }
+
+      const mergedAsg = Array.from(asgMap.values());
+      setAssignments(mergedAsg);
+    } catch (err) {
+      console.error("Error loading assignment data:", err);
+    }
+  };
 
   useEffect(() => {
-    setAssignments(loadStoredData("byline_assignments_v1", INITIAL_ASSIGNMENTS));
-    const loadedCorrs = loadStoredData("byline_correspondents_v1", INITIAL_CORRESPONDENTS);
-    setCorrespondents(loadedCorrs);
-    if (loadedCorrs.length > 0) {
-      setForm((prev) => ({ ...prev, correspondentId: loadedCorrs[0].id }));
-    }
+    loadAllData();
   }, []);
 
   const togglePlatform = (p: Platform) => {
@@ -53,32 +121,70 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.correspondentId) return;
 
-    const assignedCorr = correspondents.find((c) => c.id === form.correspondentId);
+    setLoading(true);
+    setMessage(null);
 
-    const newAssignment: Assignment = {
-      id: `ASG-2026-${String(assignments.length + 1).padStart(3, "0")}`,
-      title: form.title,
-      brief: form.brief,
-      targetPlatforms: selectedPlatforms,
-      deadline: form.deadline || new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
-      correspondentId: form.correspondentId,
-      correspondentName: assignedCorr ? assignedCorr.name : "Assigned Correspondent",
-      assignedBy: user?.name || "Desk Editor",
-      createdAt: new Date().toISOString(),
-      status: "assigned",
-    };
+    try {
+      const assignedCorr = correspondents.find((c) => c.id === form.correspondentId);
+      const asgId = `ASG-2026-${String(assignments.length + 1).padStart(3, "0")}`;
 
-    const updated = [newAssignment, ...assignments];
-    setAssignments(updated);
-    saveStoredData("byline_assignments_v1", updated);
+      const newAssignment: Assignment = {
+        id: asgId,
+        title: form.title.trim(),
+        brief: form.brief.trim(),
+        targetPlatforms: selectedPlatforms,
+        deadline: form.deadline || new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
+        correspondentId: form.correspondentId,
+        correspondentName: assignedCorr ? assignedCorr.name : "Assigned Correspondent",
+        correspondentEmail: assignedCorr ? assignedCorr.email : "",
+        assignedBy: user?.name || user?.email || "Desk Editor",
+        createdAt: new Date().toISOString(),
+        status: "assigned",
+      };
 
-    setMessage(`Assignment "${newAssignment.title}" successfully dispatched to ${newAssignment.correspondentName}. Notification logged!`);
-    setForm({ title: "", brief: "", deadline: "", correspondentId: correspondents[0]?.id || "" });
-    setSelectedPlatforms(["tv_national"]);
+      // 1. Save to Firestore
+      try {
+        await setDoc(doc(db, "assignments", asgId), newAssignment);
+      } catch (fsSaveErr) {
+        console.warn("Firestore assignment save notice:", fsSaveErr);
+      }
+
+      // 2. Save to local storage
+      const updated = [newAssignment, ...assignments.filter((a) => a.id !== asgId)];
+      setAssignments(updated);
+      saveStoredData("byline_assignments_v1", updated);
+
+      // 3. Dispatch Email Alert to Correspondent
+      if (assignedCorr?.email) {
+        await sendAssignmentCommissionEmail({
+          correspondentName: newAssignment.correspondentName || "Correspondent",
+          correspondentEmail: assignedCorr.email,
+          assignmentId: newAssignment.id,
+          title: newAssignment.title,
+          brief: newAssignment.brief,
+          targetPlatforms: newAssignment.targetPlatforms,
+          deadline: newAssignment.deadline,
+          assignedBy: newAssignment.assignedBy,
+        });
+      }
+
+      setMessage({
+        type: "success",
+        text: `Assignment "${newAssignment.title}" successfully dispatched to ${newAssignment.correspondentName} (${assignedCorr?.email || "Email"}). Notification email sent!`,
+      });
+
+      setForm({ title: "", brief: "", deadline: "", correspondentId: correspondents[0]?.id || "" });
+      setSelectedPlatforms(["tv_national"]);
+    } catch (err: any) {
+      console.error("Assignment dispatch error:", err);
+      setMessage({ type: "error", text: err?.message || "Failed to dispatch assignment." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -96,8 +202,6 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
         </div>
       </div>
 
-      <EditorialDirectiveNotice />
-
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Assignment Form */}
         <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
@@ -112,12 +216,12 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
               <select
                 value={form.correspondentId}
                 onChange={(e) => setForm({ ...form, correspondentId: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white font-medium"
                 required
               >
                 {correspondents.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.county || "Correspondent"}) - {c.specialisation}
+                    {c.name} ({c.county || "Correspondent"}) — {c.email}
                   </option>
                 ))}
               </select>
@@ -183,16 +287,24 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
 
             <button
               type="submit"
-              className="w-full bg-brand-navy hover:bg-blue-900 text-white font-bold py-2.5 rounded-xl shadow transition flex items-center justify-center gap-2"
+              disabled={loading}
+              className="w-full bg-brand-navy hover:bg-blue-900 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl shadow transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Send className="w-4 h-4 text-brand-gold" />
-              <span>Dispatch Story Assignment</span>
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin text-brand-gold" /> : <Send className="w-4 h-4 text-brand-gold" />}
+              <span>{loading ? "Dispatching..." : "Dispatch Story Assignment"}</span>
             </button>
           </form>
 
           {message && (
-            <div className="mt-4 p-3 bg-brand-teal text-white rounded-lg text-xs font-semibold">
-              {message}
+            <div
+              className={`mt-4 p-3 rounded-lg text-xs font-semibold flex items-center gap-2 ${
+                message.type === "success"
+                  ? "bg-brand-teal text-white"
+                  : "bg-red-50 text-red-800 border border-red-200"
+              }`}
+            >
+              {message.type === "success" ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+              <span>{message.text}</span>
             </div>
           )}
         </div>
@@ -224,6 +336,9 @@ if (!user || !["super_admin", "editor"].includes(user.role)) {
                     </td>
                     <td className="p-3.5">
                       <span className="font-semibold text-slate-800">{asg.correspondentName}</span>
+                      {asg.correspondentEmail && (
+                        <div className="text-[10px] text-gray-400">{asg.correspondentEmail}</div>
+                      )}
                     </td>
                     <td className="p-3.5">
                       <div className="flex flex-wrap gap-1">

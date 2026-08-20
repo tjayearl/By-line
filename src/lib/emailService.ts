@@ -307,3 +307,139 @@ export async function sendAssignmentCommissionEmail(params: {
   }
 }
 
+/**
+ * Dispatches an email notification to a correspondent when their submitted filing is reviewed (Approved, Revision Needed, Declined).
+ */
+export async function sendEditorialReviewDecisionEmail(params: {
+  correspondentName: string;
+  correspondentEmail?: string;
+  submissionId: string;
+  storyTitle: string;
+  status: "approved" | "revision_needed" | "declined";
+  feedback?: string;
+  reviewedBy: string;
+  publishedPlatforms?: string[];
+  calculatedAmountKES?: number;
+}): Promise<{ success: boolean; message: string }> {
+  const {
+    correspondentName,
+    correspondentEmail,
+    submissionId,
+    storyTitle,
+    status,
+    feedback,
+    reviewedBy,
+    publishedPlatforms = [],
+    calculatedAmountKES = 0,
+  } = params;
+
+  if (!correspondentEmail) {
+    return { success: false, message: "No correspondent email provided." };
+  }
+
+  const emailLower = correspondentEmail.trim().toLowerCase();
+  const statusLabel = status === "approved" ? "APPROVED" : status === "revision_needed" ? "REVISION REQUESTED" : "DECLINED";
+  const statusColor = status === "approved" ? "#0F6E56" : status === "revision_needed" ? "#d97706" : "#B71C1C";
+  const portalUrl = window.location.origin + (status === "approved" ? "/report" : "/submit");
+
+  const emailSubject = `Editorial Decision [${submissionId}]: ${storyTitle} (${statusLabel})`;
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f7f7f7; margin: 0; padding: 20px; color: #1e293b; }
+          .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+          .header { background-color: #1A3E6F; color: #ffffff; padding: 24px; border-bottom: 4px solid #C8972B; text-align: center; }
+          .header h1 { margin: 0; font-size: 22px; font-weight: 800; }
+          .header p { margin: 4px 0 0 0; color: #C8972B; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+          .content { padding: 28px 24px; line-height: 1.6; font-size: 14px; }
+          .status-badge { display: inline-block; padding: 6px 14px; border-radius: 9999px; font-weight: 800; font-size: 12px; color: #ffffff; background-color: ${statusColor}; margin-bottom: 12px; }
+          .card { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .row { margin-bottom: 8px; font-size: 13px; }
+          .label { font-weight: 600; color: #64748b; width: 140px; display: inline-block; }
+          .value { font-weight: 700; color: #0f172a; }
+          .feedback-box { background: #fffbeb; border-left: 4px solid #d97706; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 13px; color: #78350f; }
+          .btn-container { text-align: center; margin: 28px 0; }
+          .btn { background-color: #C8972B; color: #102747; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 800; font-size: 14px; display: inline-block; }
+          .footer { background-color: #f1f5f9; padding: 16px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>KENYA BROADCASTING CORPORATION</h1>
+            <p>Editorial Desk Review Notification</p>
+          </div>
+          <div class="content">
+            <p>Dear <strong>${correspondentName}</strong>,</p>
+            <p>Your story filing <strong>"${storyTitle}"</strong> [${submissionId}] has been reviewed by Desk Editor <strong>${reviewedBy}</strong>.</p>
+            
+            <div style="text-align: center; margin: 16px 0;">
+              <span class="status-badge">${statusLabel}</span>
+            </div>
+
+            ${feedback ? `
+              <div class="feedback-box">
+                <strong>Desk Editor Notes / Feedback:</strong><br/>
+                "${feedback}"
+              </div>
+            ` : ""}
+
+            <div class="card">
+              <div class="row"><span class="label">Filing Reference:</span> <span class="value" style="font-family:monospace; color:#1A3E6F;">${submissionId}</span></div>
+              <div class="row"><span class="label">Editorial Status:</span> <span class="value" style="color:${statusColor};">${statusLabel}</span></div>
+              ${publishedPlatforms.length > 0 ? `<div class="row"><span class="label">Confirmed Platforms:</span> <span class="value">${publishedPlatforms.join(", ").replace(/_/g, " ").toUpperCase()}</span></div>` : ""}
+              ${calculatedAmountKES > 0 ? `<div class="row"><span class="label">Calculated Payout:</span> <span class="value" style="color:#C8972B;">KES ${calculatedAmountKES.toLocaleString()}</span></div>` : ""}
+              <div class="row"><span class="label">Reviewed By:</span> <span class="value">${reviewedBy}</span></div>
+            </div>
+
+            <div class="btn-container">
+              <a href="${portalUrl}" class="btn">${status === "approved" ? "View in Stories & Claims Report" : "Open Portal & Review Filing"}</a>
+            </div>
+          </div>
+          <div class="footer">
+            &copy; ${new Date().getFullYear()} Kenya Broadcasting Corporation. Central News Desk.
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  try {
+    try {
+      await addDoc(collection(db, "mail"), {
+        to: [emailLower],
+        message: {
+          subject: emailSubject,
+          text: `Dear ${correspondentName},\n\nYour filing "${storyTitle}" [${submissionId}] was reviewed by ${reviewedBy}.\nStatus: ${statusLabel}\n${feedback ? `Feedback: ${feedback}\n` : ""}${calculatedAmountKES > 0 ? `Calculated Payout: KES ${calculatedAmountKES}\n` : ""}Portal link: ${portalUrl}`,
+          html: emailHtml,
+        },
+        createdAt: new Date().toISOString(),
+      });
+    } catch (fsErr) {
+      console.warn("Firestore decision mail queue notice:", fsErr);
+    }
+
+    const storedLogs = loadStoredData<OutgoingEmailLog[]>("byline_sent_emails_v1", []);
+    const newLog: OutgoingEmailLog = {
+      id: `mail-${Date.now()}`,
+      to: emailLower,
+      recipientName: correspondentName,
+      subject: emailSubject,
+      role: "Correspondent",
+      type: "finance_claim",
+      sentAt: new Date().toISOString(),
+      status: "sent",
+    };
+    saveStoredData("byline_sent_emails_v1", [newLog, ...storedLogs]);
+
+    return { success: true, message: `Review decision email sent to ${emailLower}` };
+  } catch (err: any) {
+    console.error("Decision email error:", err);
+    return { success: false, message: err?.message || "Could not dispatch decision email." };
+  }
+}
+

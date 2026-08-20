@@ -1,5 +1,16 @@
-import { Link, useNavigate } from "react-router-dom";
-import { LogOut } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { 
+  LogOut, 
+  LayoutDashboard, 
+  ClipboardCheck, 
+  FilePlus, 
+  UserPlus, 
+  UploadCloud, 
+  FileText, 
+  Clock, 
+  Settings, 
+  Users 
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
 
@@ -16,6 +27,7 @@ const ROLE_LABELS: Record<Role, { title: string; desc: string }> = {
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = async () => {
     try {
@@ -25,6 +37,11 @@ export default function Navbar() {
       console.error("Signout error:", err);
     }
   };
+
+  const isEditor = user && ["editor", "managing_editor", "super_admin"].includes(user.role);
+  const isCorrespondent = user?.role === "correspondent";
+  const isSuperAdmin = user?.role === "super_admin";
+  const isManagingEditor = user?.role === "managing_editor" || isSuperAdmin;
 
   return (
     <header className="bg-brand-navy text-white shadow-md border-b-4 border-brand-gold sticky top-0 z-50">
@@ -72,6 +89,133 @@ export default function Navbar() {
           )}
         </div>
       </div>
+
+      {/* Sub Navigation Bar */}
+      {user && (
+        <div className="bg-blue-950/90 border-t border-blue-900/80 px-4 sm:px-6 py-1.5 overflow-x-auto">
+          <div className="max-w-7xl mx-auto flex items-center gap-1 text-xs whitespace-nowrap">
+            <Link
+              to="/"
+              className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                location.pathname === "/"
+                  ? "bg-brand-gold text-slate-900 shadow-xs"
+                  : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Overview</span>
+            </Link>
+
+            {isEditor && (
+              <>
+                <Link
+                  to="/editor/review"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/review" || location.pathname === "/approvals"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>Review Filings</span>
+                </Link>
+
+                <Link
+                  to="/editor/assign"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/assign"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <FilePlus className="w-3.5 h-3.5" />
+                  <span>Assign Story</span>
+                </Link>
+
+                <Link
+                  to="/editor/register"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/register"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Register Correspondent</span>
+                </Link>
+              </>
+            )}
+
+            {isCorrespondent && (
+              <>
+                <Link
+                  to="/submit"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/submit"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Submit Filing</span>
+                </Link>
+
+                <Link
+                  to="/assignments"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/assignments" || location.pathname === "/operations"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>My Assignments</span>
+                </Link>
+
+                <Link
+                  to="/report"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/report"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Stories & Claims Report</span>
+                </Link>
+              </>
+            )}
+
+            {isManagingEditor && (
+              <Link
+                to="/admin/rates"
+                className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                  location.pathname === "/admin/rates"
+                    ? "bg-brand-gold text-slate-900 shadow-xs"
+                    : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Rate Cards</span>
+              </Link>
+            )}
+
+            {isSuperAdmin && (
+              <Link
+                to="/admin/users"
+                className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                  location.pathname === "/admin/users"
+                    ? "bg-brand-gold text-slate-900 shadow-xs"
+                    : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>User Roles</span>
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

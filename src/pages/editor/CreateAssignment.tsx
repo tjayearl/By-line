@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { FilePlus, Send, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
+import { FilePlus, Send, RefreshCw, CheckCircle2, AlertCircle, Trash2, AlertTriangle, X } from "lucide-react";
 import { doc, getDocs, collection, setDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
+import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS, deleteAssignment } from "../../lib/dataStore";
 import { sendAssignmentCommissionEmail } from "../../lib/emailService";
 import type { Assignment, Correspondent, Platform } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -18,61 +18,60 @@ const PLATFORM_OPTIONS: { key: Platform; label: string; icon: string }[] = [
 ];
 
 export default function CreateAssignment() {
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
-  const [form, setForm] = useState({
-    title: "",
-    brief: "",
-    deadline: "",
-    correspondentId: "",
-  });
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["tv_national"]);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const { user } = useAuth();
 
-  // ONLY Super Admin and Desk Editor can create assignments
-  if (!user || !["super_admin", "editor"].includes(user.role)) {
+  // Only Editors and Super Admin can create assignments
+  if (!user || !["desk_editor", "managing_editor", "super_admin"].includes(user.role)) {
     return <Navigate to="/" replace />;
   }
 
+  const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Assignment | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Form State
+  const [form, setForm] = useState({
+    title: "",
+    brief: "",
+    correspondentId: "",
+    deadline: "",
+  });
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([
+    "tv_national",
+    "website",
+  ]);
+
   const loadAllData = async () => {
     try {
-      // 1. Load Correspondents from Firestore & Local Storage
+      // 1. Load Correspondents
       const corrMap = new Map<string, Correspondent>();
-      
-      // Default initial mock correspondents
-      INITIAL_CORRESPONDENTS.forEach((c) => corrMap.set(c.email.toLowerCase(), c));
-
-      // Local stored correspondents
+      INITIAL_CORRESPONDENTS.forEach((c) => corrMap.set(c.id, c));
       const localCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", []);
-      localCorrs.forEach((c) => {
-        if (c.email) corrMap.set(c.email.toLowerCase(), c);
-      });
+      localCorrs.forEach((c) => corrMap.set(c.id, c));
 
-      // Firestore users (correspondents)
       try {
-        const usersSnap = await getDocs(collection(db, "users"));
-        usersSnap.forEach((d) => {
+        const uSnap = await getDocs(collection(db, "users"));
+        uSnap.forEach((d) => {
           const u = d.data() as any;
           if (u.role === "correspondent" && u.email) {
-            corrMap.set(u.email.toLowerCase(), {
+            corrMap.set(d.id, {
               id: d.id,
               name: u.name || u.email,
               email: u.email,
               phone: u.phone || "",
               idNumber: u.idNumber || "",
               bankDetails: u.bankDetails || "",
-              specialisation: u.specialisation || "General News",
+              specialisation: u.specialisation || "News",
               county: u.county || "Nairobi",
               registeredAt: u.registeredAt || new Date().toISOString(),
-              registeredBy: u.registeredBy || "Desk Editor",
             });
           }
         });
       } catch (fsErr) {
-        console.warn("Firestore correspondents lookup notice:", fsErr);
+        console.warn("Firestore users lookup notice:", fsErr);
       }
 
       const mergedCorrs = Array.from(corrMap.values());
@@ -81,26 +80,23 @@ export default function CreateAssignment() {
         setForm((prev) => ({ ...prev, correspondentId: mergedCorrs[0].id }));
       }
 
-      // 2. Load Assignments from Firestore & Local Storage
-      const asgMap = new Map<string, Assignment>();
-      INITIAL_ASSIGNMENTS.forEach((a) => asgMap.set(a.id, a));
-
-      const localAsg = loadStoredData<Assignment[]>("byline_assignments_v1", []);
-      localAsg.forEach((a) => asgMap.set(a.id, a));
-
+      // 2. Load Assignments (Firestore authoritative)
+      let mergedAsg: Assignment[] = [];
       try {
         const asgSnap = await getDocs(collection(db, "assignments"));
+        const fsAsgs: Assignment[] = [];
         asgSnap.forEach((d) => {
           const a = d.data() as Assignment;
           if (a && (a.id || d.id)) {
-            asgMap.set(a.id || d.id, { ...a, id: a.id || d.id });
+            fsAsgs.push({ ...a, id: a.id || d.id });
           }
         });
+        mergedAsg = fsAsgs;
+        saveStoredData("byline_assignments_v1", fsAsgs);
       } catch (fsAsgErr) {
         console.warn("Firestore assignments lookup notice:", fsAsgErr);
+        mergedAsg = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
       }
-
-      const mergedAsg = Array.from(asgMap.values());
       setAssignments(mergedAsg);
     } catch (err) {
       console.error("Error loading assignment data:", err);
@@ -130,7 +126,14 @@ export default function CreateAssignment() {
 
     try {
       const assignedCorr = correspondents.find((c) => c.id === form.correspondentId);
-      const asgId = `ASG-2026-${String(assignments.length + 1).padStart(3, "0")}`;
+      const existingNums = assignments
+        .map((a) => {
+          const m = a.id.match(/\d+$/);
+          return m ? parseInt(m[0], 10) : 0;
+        })
+        .filter((n) => !isNaN(n));
+      const nextNum = (existingNums.length > 0 ? Math.max(...existingNums) : assignments.length) + 1;
+      const asgId = `ASG-2026-${String(nextNum).padStart(3, "0")}`;
 
       const newAssignment: Assignment = {
         id: asgId,
@@ -324,58 +327,150 @@ export default function CreateAssignment() {
                   <th className="p-3.5">Assigned Reporter</th>
                   <th className="p-3.5">Target Platforms</th>
                   <th className="p-3.5">Deadline</th>
-                  <th className="p-3.5 text-right">Status</th>
+                  <th className="p-3.5">Status</th>
+                  <th className="p-3.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y text-xs">
-                {assignments.map((asg) => (
-                  <tr key={asg.id} className="hover:bg-blue-50/40 transition">
-                    <td className="p-3.5">
-                      <div className="font-bold text-brand-navy text-sm">{asg.title}</div>
-                      <div className="text-gray-500 font-mono text-[11px] mt-0.5">{asg.id}</div>
-                    </td>
-                    <td className="p-3.5">
-                      <span className="font-semibold text-slate-800">{asg.correspondentName}</span>
-                      {asg.correspondentEmail && (
-                        <div className="text-[10px] text-gray-400">{asg.correspondentEmail}</div>
-                      )}
-                    </td>
-                    <td className="p-3.5">
-                      <div className="flex flex-wrap gap-1">
-                        {asg.targetPlatforms?.map((p) => (
-                          <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
-                            {p.replace("_", " ").toUpperCase()}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="p-3.5 text-gray-600 font-medium">
-                      {new Date(asg.deadline).toLocaleString()}
-                    </td>
-                    <td className="p-3.5 text-right">
-                      {asg.status === "completed" && (
-                        <span className="bg-brand-teal text-white text-[10px] font-bold px-2 py-1 rounded-full">
-                          Completed
-                        </span>
-                      )}
-                      {asg.status === "submitted" && (
-                        <span className="bg-amber-500 text-white text-[10px] font-bold px-2 py-1 rounded-full">
-                          Filed
-                        </span>
-                      )}
-                      {asg.status === "assigned" && (
-                        <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">
-                          Assigned
-                        </span>
-                      )}
+                {assignments.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-gray-500">
+                      No dispatched assignments yet. Use the form on the left to commission your first story.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  assignments.map((asg) => (
+                    <tr key={asg.id} className="hover:bg-blue-50/40 transition">
+                      <td className="p-3.5">
+                        <div className="font-bold text-brand-navy text-sm">{asg.title}</div>
+                        <div className="text-gray-500 font-mono text-[11px] mt-0.5">{asg.id}</div>
+                      </td>
+                      <td className="p-3.5">
+                        <span className="font-semibold text-slate-800">{asg.correspondentName}</span>
+                        {asg.correspondentEmail && (
+                          <div className="text-[10px] text-gray-400">{asg.correspondentEmail}</div>
+                        )}
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex flex-wrap gap-1">
+                          {asg.targetPlatforms?.map((p) => (
+                            <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
+                              {p.replace("_", " ").toUpperCase()}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-3.5 text-gray-600 font-medium">
+                        {new Date(asg.deadline).toLocaleString()}
+                      </td>
+                      <td className="p-3.5">
+                        {asg.status === "completed" && (
+                          <span className="bg-brand-teal text-white text-[10px] font-bold px-2 py-1 rounded-full">
+                            Completed
+                          </span>
+                        )}
+                        {asg.status === "submitted" && (
+                          <span className="bg-amber-500 text-white text-[10px] font-bold px-2 py-1 rounded-full">
+                            Filed
+                          </span>
+                        )}
+                        {asg.status === "assigned" && (
+                          <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">
+                            Assigned
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(asg)}
+                          className="p-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-bold transition cursor-pointer"
+                          title="Delete this assignment"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {/* Delete Assignment Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2 text-rose-700 font-black text-base">
+                <AlertTriangle className="w-5 h-5" />
+                <span>Delete Assignment?</span>
+              </div>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeleting}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-3 text-xs text-gray-600 leading-relaxed">
+              <p>
+                Are you sure you want to permanently delete assignment <strong className="text-slate-900">[{deleteTarget.id}] "{deleteTarget.title}"</strong>?
+              </p>
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl">
+                <p className="font-bold">What happens:</p>
+                <ul className="list-disc list-inside mt-1 space-y-0.5 text-[11px]">
+                  <li>The assignment will be removed from the newsroom pipeline and correspondent portal.</li>
+                  <li>Any unapproved draft submissions linked to it will also be deleted.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!deleteTarget) return;
+                  setIsDeleting(true);
+                  try {
+                    await deleteAssignment(deleteTarget.id);
+                    await loadAllData();
+                  } finally {
+                    setIsDeleting(false);
+                    setDeleteTarget(null);
+                  }
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete Assignment</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

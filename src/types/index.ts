@@ -77,6 +77,7 @@ export interface MediaFile {
   url: string;
   type: "audio" | "video" | "image" | "document" | "text";
   size?: string;
+  dataUrl?: string;
 }
 
 export interface ProofOfUse {

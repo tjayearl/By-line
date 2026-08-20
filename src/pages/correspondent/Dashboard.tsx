@@ -1,43 +1,61 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Clock, UploadCloud, ArrowRight, RefreshCw, FileText } from "lucide-react";
+import { Clock, UploadCloud, ArrowRight, RefreshCw, FileText, CheckCircle2, AlertCircle, Edit3, Trash2, Lock, AlertTriangle, X } from "lucide-react";
 import { getDocs, collection } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { loadStoredData, INITIAL_ASSIGNMENTS } from "../../lib/dataStore";
+import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_SUBMISSIONS, withdrawStoryFiling } from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
-import type { Assignment } from "../../types";
+import type { Assignment, Submission } from "../../types";
 
 export default function CorrespondentDashboard() {
   const { user } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [withdrawTarget, setWithdrawTarget] = useState<{ subId: string; asgId: string; title: string } | null>(null);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const fetchAssignments = async () => {
     setLoading(true);
     try {
-      const asgMap = new Map<string, Assignment>();
-
-      // 1. Initial mock assignments
-      INITIAL_ASSIGNMENTS.forEach((a) => asgMap.set(a.id, a));
-
-      // 2. Local storage assignments
-      const localAsg = loadStoredData<Assignment[]>("byline_assignments_v1", []);
-      localAsg.forEach((a) => asgMap.set(a.id, a));
-
-      // 3. Firestore assignments
+      // 1. Assignments
+      let allAsg: Assignment[] = [];
       try {
         const snap = await getDocs(collection(db, "assignments"));
+        const fsAsgs: Assignment[] = [];
         snap.forEach((d) => {
           const data = d.data() as Assignment;
           if (data && (data.id || d.id)) {
-            asgMap.set(data.id || d.id, { ...data, id: data.id || d.id });
+            fsAsgs.push({ ...data, id: data.id || d.id });
           }
         });
+        allAsg = fsAsgs;
+        saveStoredData("byline_assignments_v1", fsAsgs);
       } catch (fsErr) {
         console.warn("Firestore assignments fetch notice:", fsErr);
+        allAsg = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
       }
+      setAssignments(allAsg);
 
-      setAssignments(Array.from(asgMap.values()));
+      // 2. Submissions
+      let allSubs: Submission[] = [];
+      try {
+        const subSnap = await getDocs(collection(db, "submissions"));
+        const fsSubs: Submission[] = [];
+        subSnap.forEach((d) => {
+          const s = d.data() as Submission;
+          if (s && (s.id || d.id)) {
+            fsSubs.push({ ...s, id: s.id || d.id });
+          }
+        });
+        allSubs = fsSubs;
+        saveStoredData("byline_submissions_v1", fsSubs);
+      } catch (fsErr) {
+        console.warn("Firestore submissions fetch notice:", fsErr);
+        allSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
+      }
+      setSubmissions(allSubs);
     } catch (err) {
       console.error("Error loading assignments:", err);
     } finally {
@@ -47,22 +65,43 @@ export default function CorrespondentDashboard() {
 
   useEffect(() => {
     fetchAssignments();
+
+    const handleUpdate = () => {
+      fetchAssignments();
+    };
+
+    window.addEventListener("storage", handleUpdate);
+    window.addEventListener("byline:data_updated", handleUpdate);
+
+    return () => {
+      window.removeEventListener("storage", handleUpdate);
+      window.removeEventListener("byline:data_updated", handleUpdate);
+    };
   }, []);
 
+  const handleExecuteWithdraw = async () => {
+    if (!withdrawTarget) return;
+    setIsWithdrawing(true);
+    try {
+      const res = await withdrawStoryFiling(withdrawTarget.subId, withdrawTarget.asgId);
+      setActionMessage(res.message);
+      await fetchAssignments();
+    } catch (err: any) {
+      setActionMessage(err?.message || "Failed to withdraw filing");
+    } finally {
+      setIsWithdrawing(false);
+      setWithdrawTarget(null);
+    }
+  };
+
   const myAssignments = assignments.filter((a) => {
-    // If user is not a correspondent, show all assignments
     if (!user || user.role !== "correspondent") return true;
 
     const userEmail = (user.email || "").toLowerCase().trim();
     const asgEmail = (a.correspondentEmail || "").toLowerCase().trim();
 
-    // 1. Match by Email
     if (asgEmail && userEmail && asgEmail === userEmail) return true;
-
-    // 2. Match by UID or ID
     if (a.correspondentId && (a.correspondentId === user.uid || a.correspondentId === userEmail)) return true;
-
-    // 3. Match by Name if defined
     if (a.correspondentName && user.name && a.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
 
     return false;
@@ -102,6 +141,18 @@ export default function CorrespondentDashboard() {
         </div>
       </div>
 
+      {actionMessage && (
+        <div className="p-4 bg-brand-teal text-white rounded-xl shadow text-sm font-semibold flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+            <span>{actionMessage}</span>
+          </div>
+          <button onClick={() => setActionMessage(null)} className="text-white hover:opacity-80 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Assignments List */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="bg-brand-navy text-white px-6 py-4 flex items-center justify-between border-b-2 border-brand-gold">
@@ -128,52 +179,173 @@ export default function CorrespondentDashboard() {
               </div>
             </div>
           ) : (
-            myAssignments.map((asg) => (
-              <div key={asg.id} className="p-6 hover:bg-blue-50/30 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-2 max-w-2xl">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-brand-navy text-white font-mono text-[10px] font-bold px-2 py-0.5 rounded">
-                      {asg.id}
-                    </span>
-                    <span className="text-xs text-gray-500 font-medium">Assigned by: {asg.assignedBy}</span>
-                  </div>
+            myAssignments.map((asg) => {
+              const matchSub = submissions.find(
+                (s) => s.assignmentId === asg.id || (s.assignmentTitle && asg.title && s.assignmentTitle.toLowerCase().trim() === asg.title.toLowerCase().trim())
+              );
+              const isPending = asg.status === "submitted" || matchSub?.status === "pending_review";
+              const isCompleted = asg.status === "completed" || matchSub?.status === "approved";
+              const isRevision = matchSub?.status === "revision_needed";
 
-                  <h3 className="text-lg font-bold text-slate-900">{asg.title}</h3>
-                  <p className="text-xs sm:text-sm text-gray-600 leading-relaxed bg-brand-offwhite p-3 rounded-xl border">
-                    {asg.brief}
-                  </p>
-
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <span className="text-xs font-bold text-slate-700">Target Platforms:</span>
-                    {asg.targetPlatforms?.map((p) => (
-                      <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
-                        {p.replace("_", " ").toUpperCase()}
+              return (
+                <div key={asg.id} className="p-6 hover:bg-blue-50/30 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="bg-brand-navy text-white font-mono text-[10px] font-bold px-2 py-0.5 rounded">
+                        {asg.id}
                       </span>
-                    ))}
+                      <span className="text-xs text-gray-500 font-medium">Assigned by: {asg.assignedBy}</span>
+                      {isCompleted ? (
+                        <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Approved for Broadcast
+                        </span>
+                      ) : isRevision ? (
+                        <span className="bg-orange-100 text-orange-900 border border-orange-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-orange-600" /> Revision Needed
+                        </span>
+                      ) : isPending ? (
+                        <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" /> Pending Desk Review
+                        </span>
+                      ) : (
+                        <span className="bg-blue-100 text-brand-navy border border-blue-200 text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-blue-600" /> Assigned (Awaiting Filing)
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="text-lg font-bold text-slate-900">{asg.title}</h3>
+                    <p className="text-xs sm:text-sm text-gray-600 leading-relaxed bg-brand-offwhite p-3 rounded-xl border">
+                      {asg.brief}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <span className="text-xs font-bold text-slate-700">Target Platforms:</span>
+                      {asg.targetPlatforms?.map((p) => (
+                        <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
+                          {p.replace("_", " ").toUpperCase()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-3 shrink-0">
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-gray-500 block">Filing Deadline</span>
+                      <span className="text-xs font-bold text-brand-red">
+                        {new Date(asg.deadline).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isCompleted ? (
+                        <Link
+                          to="/report"
+                          className="bg-brand-teal text-white hover:bg-emerald-800 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>View Report</span>
+                        </Link>
+                      ) : matchSub ? (
+                        <>
+                          <Link
+                            to={`/submit?edit=${matchSub.id}`}
+                            className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                            title="Edit this filed draft"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-slate-900" />
+                            <span>Edit Filing</span>
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setWithdrawTarget({ subId: matchSub.id, asgId: asg.id, title: asg.title })}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1 transition cursor-pointer"
+                            title="Withdraw filing and restore assignment to unfiled"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Withdraw</span>
+                          </button>
+                        </>
+                      ) : (
+                        <Link
+                          to={`/submit?asg=${asg.id}`}
+                          className="bg-brand-navy hover:bg-blue-900 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                        >
+                          <span>Submit Filing</span>
+                          <ArrowRight className="w-3.5 h-3.5 text-brand-gold" />
+                        </Link>
+                      )}
+                    </div>
                   </div>
                 </div>
-
-                <div className="flex flex-col items-end gap-3 shrink-0">
-                  <div className="text-right">
-                    <span className="text-[10px] uppercase font-bold text-gray-500 block">Filing Deadline</span>
-                    <span className="text-xs font-bold text-brand-red">
-                      {new Date(asg.deadline).toLocaleString()}
-                    </span>
-                  </div>
-
-                  <Link
-                    to="/submit"
-                    className="bg-brand-navy hover:bg-blue-900 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow transition"
-                  >
-                    <span>Submit Filing</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-brand-gold" />
-                  </Link>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
+
+      {/* Withdraw Confirmation Modal */}
+      {withdrawTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2 text-rose-700 font-black text-base">
+                <AlertTriangle className="w-5 h-5" />
+                <span>Withdraw Story Filing?</span>
+              </div>
+              <button
+                onClick={() => setWithdrawTarget(null)}
+                disabled={isWithdrawing}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-3 text-xs text-gray-600 leading-relaxed">
+              <p>
+                Are you sure you want to withdraw the submission for <strong className="text-slate-900">"{withdrawTarget.title}"</strong>?
+              </p>
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl">
+                <p className="font-bold">What happens next:</p>
+                <ul className="list-disc list-inside mt-1 space-y-0.5 text-[11px]">
+                  <li>The draft filing and attached media will be deleted from the review queue.</li>
+                  <li>The assignment will be restored to <strong>Assigned (Awaiting Filing)</strong> so you can re-file when ready.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setWithdrawTarget(null)}
+                disabled={isWithdrawing}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteWithdraw}
+                disabled={isWithdrawing}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isWithdrawing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Withdrawing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Withdraw Filing</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

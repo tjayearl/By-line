@@ -1,3 +1,5 @@
+import { collection, getDocs, deleteDoc, updateDoc, doc } from "firebase/firestore";
+import { db } from "./firebase";
 import type { Assignment, Correspondent, PaymentClaim, Platform, RateCardEntry, Submission } from "../types";
 
 export const DEFAULT_RATES: RateCardEntry[] = [
@@ -84,127 +86,11 @@ export const INITIAL_CORRESPONDENTS: Correspondent[] = [
   },
 ];
 
-export const INITIAL_ASSIGNMENTS: Assignment[] = [
-  {
-    id: "ASG-2026-001",
-    title: "Nakuru Pyrethrum Farmers Revival Initiative",
-    brief: "Cover the county government rollout of subsidised pyrethrum seedlings in Molo. Interview local farmers and county executive officer for agriculture.",
-    targetPlatforms: ["tv_national", "website"],
-    deadline: "2026-08-15T17:00",
-    correspondentId: "corr-101",
-    correspondentName: "Jane Wambui",
-    assignedBy: "Main Desk Editor",
-    createdAt: "2026-08-01T09:00:00Z",
-    status: "completed",
-  },
-  {
-    id: "ASG-2026-002",
-    title: "Lake Victoria Water Hyacinth Harvesting Machinery Launch",
-    brief: "Special report on new automated harvesters deployed at Dunga Beach. Include video package and radio audio clip for Mayienga FM.",
-    targetPlatforms: ["tv_national", "radio_vernacular", "social"],
-    deadline: "2026-08-18T16:00",
-    correspondentId: "corr-102",
-    correspondentName: "Omondi Otieno",
-    assignedBy: "Senior Desk Editor",
-    createdAt: "2026-08-03T10:30:00Z",
-    status: "submitted",
-  },
-  {
-    id: "ASG-2026-003",
-    title: "Mombasa Port Decongestion & Standard Gauge Railway Connectivity",
-    brief: "File text story and high-resolution images on cargo clearance times following new digitalization protocols at Terminal 2.",
-    targetPlatforms: ["website", "social"],
-    deadline: "2026-08-22T14:00",
-    correspondentId: "corr-103",
-    correspondentName: "Amina Hassan",
-    assignedBy: "Managing Editor",
-    createdAt: "2026-08-05T08:15:00Z",
-    status: "assigned",
-  },
-];
+export const INITIAL_ASSIGNMENTS: Assignment[] = [];
 
-export const INITIAL_SUBMISSIONS: Submission[] = [
-  {
-    id: "SUB-2026-001",
-    assignmentId: "ASG-2026-001",
-    assignmentTitle: "Nakuru Pyrethrum Farmers Revival Initiative",
-    correspondentId: "corr-101",
-    correspondentName: "Jane Wambui",
-    textContent: "MOLO, KENYA — Over 500 smallholder farmers in Molo sub-county received 200,000 pyrethrum seedlings under the County Agricultural Revival Project. Speaking during the distribution exercise, Governor Susan Kihika highlighted that pyrethrum farming is targeting a revenue boost of KES 500 million annually...",
-    mediaFiles: [
-      { name: "Molo_Pyrethrum_Package.mp4", url: "#", type: "video", size: "45.2 MB" },
-      { name: "Farmer_Interview_Audio.wav", url: "#", type: "audio", size: "12.8 MB" },
-      { name: "Seedling_Distribution_Photo1.jpg", url: "#", type: "image", size: "3.4 MB" },
-    ],
-    submittedAt: "2026-08-02T14:20:00Z",
-    status: "approved",
-    editorialFeedback: "Excellent coverage with solid audio quality. Approved for Prime Time News.",
-    reviewedBy: "Managing Editor",
-    reviewedAt: "2026-08-02T16:00:00Z",
-    publishedPlatforms: ["tv_national", "website"],
-    isPublished: true,
-    publishedAt: "2026-08-03T19:00:00Z",
-    proofOfUse: {
-      url: "https://www.kbc.co.ke/nakuru-pyrethrum-revival-2026",
-      youtubeUrl: "https://www.youtube.com/watch?v=kbc_pyrethrum_molo",
-      notes: "Aired on KBC Channel 1 News at 7PM & published on website.",
-      submittedAt: "2026-08-04T10:00:00Z",
-    },
-    proofConfirmed: true,
-    proofConfirmedBy: "Managing Editor",
-    proofConfirmedAt: "2026-08-04T11:00:00Z",
-    calculatedAmountKES: 18000,
-    claimId: "CLAIM-2026-08-001",
-  },
-  {
-    id: "SUB-2026-002",
-    assignmentId: "ASG-2026-002",
-    assignmentTitle: "Lake Victoria Water Hyacinth Harvesting Machinery Launch",
-    correspondentId: "corr-102",
-    correspondentName: "Omondi Otieno",
-    textContent: "KISUMU — Kenya Maritime Authority has commissioned two state-of-the-art aquatic weed harvesters to clear 400 hectares of water hyacinth near Dunga Beach. Fishermen have welcomed the move...",
-    mediaFiles: [
-      { name: "Dunga_Harvester_Video.mp4", url: "#", type: "video", size: "88.1 MB" },
-      { name: "Beach_Audio_Luo.wav", url: "#", type: "audio", size: "8.5 MB" },
-    ],
-    submittedAt: "2026-08-04T11:45:00Z",
-    status: "approved",
-    editorialFeedback: "Story approved for broadcast. Please upload YouTube broadcast link once aired.",
-    reviewedBy: "Desk Editor",
-    reviewedAt: "2026-08-04T13:00:00Z",
-    publishedPlatforms: ["tv_national", "radio_vernacular"],
-    isPublished: true,
-    publishedAt: "2026-08-05T13:00:00Z",
-    proofOfUse: {
-      youtubeUrl: "https://youtube.com/watch?v=kbc_kisumu_hyacinth",
-      audioClipUrl: "https://kbc.co.ke/audio/mayienga_hyacinth.mp3",
-      notes: "Aired on Channel 1 and Mayienga FM 4PM Bulletin",
-      submittedAt: "2026-08-05T15:30:00Z",
-    },
-    proofConfirmed: true,
-    proofConfirmedBy: "Desk Editor",
-    proofConfirmedAt: "2026-08-05T16:00:00Z",
-    calculatedAmountKES: 18500,
-    claimId: undefined,
-  },
-];
+export const INITIAL_SUBMISSIONS: Submission[] = [];
 
-export const INITIAL_CLAIMS: PaymentClaim[] = [
-  {
-    id: "CLAIM-2026-08-001",
-    correspondentId: "corr-101",
-    correspondentName: "Jane Wambui",
-    correspondentEmail: "jane.wambui@kbc.co.ke",
-    correspondentPhone: "+254 712 345 678",
-    bankDetails: "KCB Bank - A/C 1184920491 (Nakuru Branch)",
-    month: "August 2026",
-    submissionIds: ["SUB-2026-001"],
-    submissions: [INITIAL_SUBMISSIONS[0]],
-    totalAmountKES: 18000,
-    status: "pending",
-    createdAt: "2026-08-05T12:00:00Z",
-  },
-];
+export const INITIAL_CLAIMS: PaymentClaim[] = [];
 
 export function loadStoredData<T>(key: string, defaultValue: T): T {
   try {
@@ -230,4 +116,160 @@ export function calculatePaymentForPlatforms(platforms: Platform[], rates: RateC
     const rateItem = rates.find((r) => r.platform === p);
     return sum + (rateItem ? rateItem.rateKES : 0);
   }, 0);
+}
+
+/**
+ * Wipes all assignments, submissions, and claims from both local cache and Firestore
+ * to give the newsroom a completely fresh start.
+ */
+export async function clearAllStoriesData(): Promise<{ success: boolean; message: string }> {
+  try {
+    // 1. Reset Local Storage
+    localStorage.setItem("byline_assignments_v1", "[]");
+    localStorage.setItem("byline_submissions_v1", "[]");
+    localStorage.setItem("byline_claims_v1", "[]");
+
+    // 2. Clear Firestore assignments
+    try {
+      const asgSnap = await getDocs(collection(db, "assignments"));
+      for (const d of asgSnap.docs) {
+        await deleteDoc(doc(db, "assignments", d.id));
+      }
+    } catch (e) {
+      console.warn("Firestore delete assignments notice:", e);
+    }
+
+    // 3. Clear Firestore submissions
+    try {
+      const subSnap = await getDocs(collection(db, "submissions"));
+      for (const d of subSnap.docs) {
+        await deleteDoc(doc(db, "submissions", d.id));
+      }
+    } catch (e) {
+      console.warn("Firestore delete submissions notice:", e);
+    }
+
+    // 4. Clear Firestore claims
+    try {
+      const claimSnap = await getDocs(collection(db, "claims"));
+      for (const d of claimSnap.docs) {
+        await deleteDoc(doc(db, "claims", d.id));
+      }
+    } catch (e) {
+      console.warn("Firestore delete claims notice:", e);
+    }
+
+    // 5. Broadcast updates
+    try {
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("byline:data_updated"));
+    } catch {}
+
+    return { success: true, message: "All stories, assignments, filings, and claims deleted successfully. Clean slate active." };
+  } catch (err: any) {
+    console.error("Error clearing story data:", err);
+    return { success: false, message: err?.message || "Failed to clear story data." };
+  }
+}
+
+/**
+ * Allows a correspondent or editor to withdraw/delete a pending story filing.
+ * Automatically restores the linked assignment back to "assigned" so it can be re-filed.
+ */
+export async function withdrawStoryFiling(
+  subId: string,
+  asgId?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    // 1. Delete submission from Firestore
+    try {
+      await deleteDoc(doc(db, "submissions", subId));
+    } catch (e) {
+      console.warn("Firestore delete submission notice:", e);
+    }
+
+    // 2. If assignment ID is known, revert its status to "assigned"
+    if (asgId) {
+      try {
+        await updateDoc(doc(db, "assignments", asgId), { status: "assigned" });
+      } catch (e) {
+        console.warn("Firestore revert assignment notice:", e);
+      }
+    }
+
+    // 3. Update Local Storage
+    const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", []);
+    const updatedSubs = localSubs.filter((s) => s.id !== subId);
+    saveStoredData("byline_submissions_v1", updatedSubs);
+
+    if (asgId) {
+      const localAsg = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+      const updatedAsg = localAsg.map((a) => (a.id === asgId ? { ...a, status: "assigned" as const } : a));
+      saveStoredData("byline_assignments_v1", updatedAsg);
+    }
+
+    // 4. Broadcast live update
+    try {
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("byline:data_updated"));
+    } catch {}
+
+    return {
+      success: true,
+      message: `Story filing [${subId}] has been successfully withdrawn. The assignment is now open to be re-filed.`,
+    };
+  } catch (err: any) {
+    console.error("Error withdrawing story filing:", err);
+    return { success: false, message: err?.message || "Failed to withdraw story filing." };
+  }
+}
+
+/**
+ * Deletes an individual assignment and any linked unapproved submissions from Firestore and local cache.
+ */
+export async function deleteAssignment(asgId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    // 1. Delete assignment from Firestore
+    try {
+      await deleteDoc(doc(db, "assignments", asgId));
+    } catch (e) {
+      console.warn("Firestore delete assignment notice:", e);
+    }
+
+    // 2. Delete linked submissions if any
+    try {
+      const snap = await getDocs(collection(db, "submissions"));
+      for (const d of snap.docs) {
+        const s = d.data() as Submission;
+        if (s.assignmentId === asgId) {
+          await deleteDoc(doc(db, "submissions", d.id));
+        }
+      }
+    } catch (e) {
+      console.warn("Firestore delete linked submissions notice:", e);
+    }
+
+    // 3. Update Local Storage
+    const localAsg = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+    const updatedAsg = localAsg.filter((a) => a.id !== asgId);
+    saveStoredData("byline_assignments_v1", updatedAsg);
+
+    const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", []);
+    const updatedSubs = localSubs.filter((s) => s.assignmentId !== asgId);
+    saveStoredData("byline_submissions_v1", updatedSubs);
+
+    // 4. Broadcast live update
+    try {
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("byline:data_updated"));
+    } catch {}
+
+    return {
+      success: true,
+      message: `Assignment [${asgId}] deleted successfully.`,
+    };
+  } catch (err: any) {
+    console.error("Error deleting assignment:", err);
+    return { success: false, message: err?.message || "Failed to delete assignment." };
+  }
 }

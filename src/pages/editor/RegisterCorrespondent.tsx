@@ -27,7 +27,7 @@ export default function RegisterCorrespondent() {
   const { user } = useAuth();
 
 // ONLY Super Admin and Desk Editor can register correspondents
-if (!user || !["super_admin", "editor"].includes(user.role)) {
+if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) {
   return <Navigate to="/" replace />;
 }
 

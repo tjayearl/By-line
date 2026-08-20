@@ -90,24 +90,21 @@ export default function SubmitFiling() {
   const docInputRef = useRef<HTMLInputElement>(null);
   const generalInputRef = useRef<HTMLInputElement>(null);
 
+
   const startEditing = (sub: Submission) => {
-    if (sub.status === "approved") {
-      setErrorMessage(`Story filing [${sub.id}] has already been approved by the Desk Editor and is locked for editing.`);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
     setEditingSubId(sub.id);
     setSelectedAsgId(sub.assignmentId || "");
     setStoryHeadline(sub.assignmentTitle || "");
     setTextContent(sub.textContent || "");
     setMediaFiles(sub.mediaFiles || []);
-    setProofUrl(sub.proofOfUse?.url || "");
-    setYoutubeUrl(sub.proofOfUse?.youtubeUrl || "");
-    setAudioClipUrl(sub.proofOfUse?.audioClipUrl || "");
-    setProofNotes(sub.proofOfUse?.notes || "");
-    setMessage(`Editing draft for story [${sub.id}]. Make your changes below and click "Update & Re-Submit".`);
+    if (sub.proofOfUse) {
+      setProofUrl(sub.proofOfUse.url || "");
+      setYoutubeUrl(sub.proofOfUse.youtubeUrl || "");
+      setAudioClipUrl(sub.proofOfUse.audioClipUrl || "");
+      setProofNotes(sub.proofOfUse.notes || "");
+    }
+    setMessage(null);
     setErrorMessage(null);
-    setSearchParams({ edit: sub.id });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -129,42 +126,46 @@ export default function SubmitFiling() {
 
   const loadData = async () => {
     try {
-      // 1. Assignments (Firestore authoritative)
-      let allAsg: Assignment[] = [];
+      // 1. Assignments (merge localStorage and Firestore)
+      const localAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
+      const asgMap = new Map<string, Assignment>();
+      localAsgs.forEach((a) => { if (a && a.id) asgMap.set(a.id, a); });
       try {
         const snap = await getDocs(collection(db, "assignments"));
-        const fsAsgs: Assignment[] = [];
         snap.forEach((d) => {
           const a = d.data() as Assignment;
           if (a && (a.id || d.id)) {
-            fsAsgs.push({ ...a, id: a.id || d.id });
+            const id = a.id || d.id;
+            const existing = asgMap.get(id);
+            asgMap.set(id, { ...existing, ...a, id });
           }
         });
-        allAsg = fsAsgs;
-        saveStoredData("byline_assignments_v1", fsAsgs);
       } catch (fsErr) {
         console.warn("Firestore assignments fetch notice:", fsErr);
-        allAsg = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
       }
+      const allAsg = Array.from(asgMap.values());
+      saveStoredData("byline_assignments_v1", allAsg);
       setAssignments(allAsg);
 
-      // 2. Submissions (Firestore authoritative)
-      let allSubs: Submission[] = [];
+      // 2. Submissions (merge localStorage and Firestore)
+      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
+      const subMap = new Map<string, Submission>();
+      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
       try {
         const subSnap = await getDocs(collection(db, "submissions"));
-        const fsSubs: Submission[] = [];
         subSnap.forEach((d) => {
           const s = d.data() as Submission;
           if (s && (s.id || d.id)) {
-            fsSubs.push({ ...s, id: s.id || d.id });
+            const id = s.id || d.id;
+            const existing = subMap.get(id);
+            subMap.set(id, { ...existing, ...s, id });
           }
         });
-        allSubs = fsSubs;
-        saveStoredData("byline_submissions_v1", fsSubs);
       } catch (fsErr) {
         console.warn("Firestore submissions lookup notice:", fsErr);
-        allSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
       }
+      const allSubs = Array.from(subMap.values());
+      saveStoredData("byline_submissions_v1", allSubs);
       setSubmissions(allSubs);
 
       // Check query param for edit or assignment
@@ -196,7 +197,7 @@ export default function SubmitFiling() {
         if (asgEmail && userEmail && asgEmail === userEmail) return true;
         if (a.correspondentId && (a.correspondentId === user.uid || a.correspondentId === userEmail)) return true;
         if (a.correspondentName && user.name && a.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
-        return false;
+        return true;
       });
 
       if (!editingSubId) {
@@ -350,8 +351,23 @@ export default function SubmitFiling() {
     setErrorMessage(null);
 
     try {
-      const asg = assignments.find((a) => a.id === selectedAsgId);
-      const finalTitle = storyHeadline.trim() || (asg ? asg.title : "Custom Story Filing");
+      let targetAsgId = selectedAsgId;
+      let matchedAsg = assignments.find((a) => a.id === targetAsgId);
+
+      if (!targetAsgId) {
+        const found = assignments.find((a) => {
+          if (!a.title || !storyHeadline) return false;
+          const h = storyHeadline.trim().toLowerCase();
+          const t = a.title.trim().toLowerCase();
+          return h === t || h.includes(t) || t.includes(h);
+        });
+        if (found) {
+          targetAsgId = found.id;
+          matchedAsg = found;
+        }
+      }
+
+      const finalTitle = storyHeadline.trim() || (matchedAsg ? matchedAsg.title : "Custom Story Filing");
 
       const proofObj: Record<string, string> = {};
       if (proofUrl.trim()) proofObj.url = proofUrl.trim();
@@ -367,7 +383,7 @@ export default function SubmitFiling() {
         const existing = submissions.find((s) => s.id === editingSubId);
         const updatedSub: Submission = {
           id: editingSubId,
-          assignmentId: selectedAsgId || "",
+          assignmentId: targetAsgId || "",
           assignmentTitle: finalTitle,
           correspondentId: existing?.correspondentId || user?.uid || user?.email || "corr-101",
           correspondentName: existing?.correspondentName || user?.name || user?.email || "Correspondent",
@@ -392,9 +408,9 @@ export default function SubmitFiling() {
         try {
           const cleanDoc = sanitizeFirestoreDoc(updatedSub);
           await setDoc(doc(db, "submissions", editingSubId), cleanDoc);
-          if (selectedAsgId) {
+          if (targetAsgId) {
             try {
-              await updateDoc(doc(db, "assignments", selectedAsgId), { status: "submitted" });
+              await updateDoc(doc(db, "assignments", targetAsgId), { status: "submitted" });
             } catch (asgErr) {
               console.warn("Could not update assignment in firestore:", asgErr);
             }
@@ -407,6 +423,15 @@ export default function SubmitFiling() {
         const updatedSubs = submissions.map((s) => (s.id === editingSubId ? updatedSub : s));
         setSubmissions(updatedSubs);
         saveStoredData("byline_submissions_v1", updatedSubs);
+
+        if (targetAsgId) {
+          const currentAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+          const updatedAsgs = currentAsgs.map((a) =>
+            a.id === targetAsgId ? { ...a, status: "submitted" as const } : a
+          );
+          setAssignments(updatedAsgs);
+          saveStoredData("byline_assignments_v1", updatedAsgs);
+        }
 
         // 3. Broadcast data update
         try {
@@ -430,7 +455,7 @@ export default function SubmitFiling() {
 
         const newSub: Submission = {
           id: subId,
-          assignmentId: selectedAsgId || "",
+          assignmentId: targetAsgId || "",
           assignmentTitle: finalTitle,
           correspondentId: user?.uid || user?.email || "corr-101",
           correspondentName: user?.name || user?.email || "Correspondent",
@@ -454,9 +479,9 @@ export default function SubmitFiling() {
         try {
           const cleanDoc = sanitizeFirestoreDoc(newSub);
           await setDoc(doc(db, "submissions", subId), cleanDoc);
-          if (selectedAsgId) {
+          if (targetAsgId) {
             try {
-              await updateDoc(doc(db, "assignments", selectedAsgId), { status: "submitted" });
+              await updateDoc(doc(db, "assignments", targetAsgId), { status: "submitted" });
             } catch (asgErr) {
               console.warn("Could not update assignment in firestore:", asgErr);
             }
@@ -471,12 +496,13 @@ export default function SubmitFiling() {
         saveStoredData("byline_submissions_v1", updatedSubs);
 
         // Update local assignment status
-        if (selectedAsgId) {
-          const updatedAsg = assignments.map((a) =>
-            a.id === selectedAsgId ? { ...a, status: "submitted" as const } : a
+        if (targetAsgId) {
+          const currentAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+          const updatedAsgs = currentAsgs.map((a) =>
+            a.id === targetAsgId ? { ...a, status: "submitted" as const } : a
           );
-          setAssignments(updatedAsg);
-          saveStoredData("byline_assignments_v1", updatedAsg);
+          setAssignments(updatedAsgs);
+          saveStoredData("byline_assignments_v1", updatedAsgs);
         }
 
         // 3. Broadcast data update

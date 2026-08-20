@@ -70,23 +70,25 @@ export default function ReviewSubmissions() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Load Submissions (Firestore authoritative)
-      let allSubs: Submission[] = [];
+      // 1. Load Submissions (merge localStorage and Firestore)
+      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
+      const subMap = new Map<string, Submission>();
+      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
       try {
         const snap = await getDocs(collection(db, "submissions"));
-        const fsSubs: Submission[] = [];
         snap.forEach((d) => {
           const s = d.data() as Submission;
           if (s && (s.id || d.id)) {
-            fsSubs.push({ ...s, id: s.id || d.id });
+            const id = s.id || d.id;
+            const existing = subMap.get(id);
+            subMap.set(id, { ...existing, ...s, id });
           }
         });
-        allSubs = fsSubs;
-        saveStoredData("byline_submissions_v1", fsSubs);
       } catch (fsErr) {
         console.warn("Firestore submissions lookup notice:", fsErr);
-        allSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
       }
+      const allSubs = Array.from(subMap.values());
+      saveStoredData("byline_submissions_v1", allSubs);
 
       allSubs.sort((a, b) => {
         const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
@@ -238,6 +240,12 @@ export default function ReviewSubmissions() {
         );
         saveStoredData("byline_assignments_v1", updatedAsgs);
       }
+
+      // Broadcast data update across tabs
+      try {
+        window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new CustomEvent("byline:data_updated"));
+      } catch {}
 
       // 4. Dispatch Email Decision Notification to Correspondent
       const corrEmail = getCorrespondentEmail(selectedSub.correspondentId, selectedSub.correspondentName);

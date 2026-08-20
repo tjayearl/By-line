@@ -19,42 +19,46 @@ export default function CorrespondentDashboard() {
   const fetchAssignments = async () => {
     setLoading(true);
     try {
-      // 1. Assignments
-      let allAsg: Assignment[] = [];
+      // 1. Assignments (merge localStorage and Firestore)
+      const localAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
+      const asgMap = new Map<string, Assignment>();
+      localAsgs.forEach((a) => { if (a && a.id) asgMap.set(a.id, a); });
       try {
         const snap = await getDocs(collection(db, "assignments"));
-        const fsAsgs: Assignment[] = [];
         snap.forEach((d) => {
           const data = d.data() as Assignment;
           if (data && (data.id || d.id)) {
-            fsAsgs.push({ ...data, id: data.id || d.id });
+            const id = data.id || d.id;
+            const existing = asgMap.get(id);
+            asgMap.set(id, { ...existing, ...data, id });
           }
         });
-        allAsg = fsAsgs;
-        saveStoredData("byline_assignments_v1", fsAsgs);
       } catch (fsErr) {
         console.warn("Firestore assignments fetch notice:", fsErr);
-        allAsg = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
       }
+      const allAsg = Array.from(asgMap.values());
+      saveStoredData("byline_assignments_v1", allAsg);
       setAssignments(allAsg);
 
-      // 2. Submissions
-      let allSubs: Submission[] = [];
+      // 2. Submissions (merge localStorage and Firestore)
+      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
+      const subMap = new Map<string, Submission>();
+      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
       try {
         const subSnap = await getDocs(collection(db, "submissions"));
-        const fsSubs: Submission[] = [];
         subSnap.forEach((d) => {
           const s = d.data() as Submission;
           if (s && (s.id || d.id)) {
-            fsSubs.push({ ...s, id: s.id || d.id });
+            const id = s.id || d.id;
+            const existing = subMap.get(id);
+            subMap.set(id, { ...existing, ...s, id });
           }
         });
-        allSubs = fsSubs;
-        saveStoredData("byline_submissions_v1", fsSubs);
       } catch (fsErr) {
         console.warn("Firestore submissions fetch notice:", fsErr);
-        allSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
       }
+      const allSubs = Array.from(subMap.values());
+      saveStoredData("byline_submissions_v1", allSubs);
       setSubmissions(allSubs);
     } catch (err) {
       console.error("Error loading assignments:", err);

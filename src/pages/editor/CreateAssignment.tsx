@@ -21,7 +21,7 @@ export default function CreateAssignment() {
   const { user } = useAuth();
 
   // Only Editors and Super Admin can create assignments
-  if (!user || !["desk_editor", "managing_editor", "super_admin"].includes(user.role)) {
+  if (!user || !["editor", "managing_editor", "super_admin"].includes(user.role)) {
     return <Navigate to="/" replace />;
   }
 

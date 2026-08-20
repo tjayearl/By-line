@@ -6,7 +6,7 @@ import {
   DollarSign, ArrowRight, Users, RefreshCw, Layers,
   Trash2, AlertTriangle, X, Edit3
 } from "lucide-react";
-import { getDocs, collection } from "firebase/firestore";
+import { getDocs, collection, doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -67,7 +67,7 @@ export default function Dashboard() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [claims, setClaims] = useState<PaymentClaim[]>([]);
   const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
-  const [activeTab, setActiveTab] = useState<"all" | "assignments" | "filings">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "assignments" | "filings" | "claims">("all");
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -76,6 +76,28 @@ export default function Dashboard() {
   const [withdrawTarget, setWithdrawTarget] = useState<{ subId: string; asgId?: string; title: string } | null>(null);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [pipelineFeedback, setPipelineFeedback] = useState<string | null>(null);
+
+  const handleMarkClaimAsPaid = async (claimId: string) => {
+    const paidTimestamp = new Date().toISOString();
+    const updated = claims.map((c) =>
+      c.id === claimId ? { ...c, status: "paid" as const, paidAt: paidTimestamp } : c
+    );
+    setClaims(updated);
+    saveStoredData("byline_claims_v1", updated);
+
+    try {
+      await updateDoc(doc(db, "claims", claimId), { status: "paid", paidAt: paidTimestamp });
+    } catch (fsErr) {
+      console.warn("Firestore mark claim paid notice:", fsErr);
+    }
+
+    try {
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("byline:data_updated"));
+    } catch {}
+
+    setPipelineFeedback(`Claim [${claimId}] successfully marked as PAID & Settled!`);
+  };
 
   const handleResetAllStories = async () => {
     setIsResetting(true);
@@ -113,38 +135,46 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Assignments
-      let allAsgs: Assignment[] = [];
+      // 1. Assignments (merge localStorage and Firestore)
+      const localAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
+      const asgMap = new Map<string, Assignment>();
+      localAsgs.forEach((a) => { if (a && a.id) asgMap.set(a.id, a); });
       try {
         const asgSnap = await getDocs(collection(db, "assignments"));
-        const fsAsgs: Assignment[] = [];
         asgSnap.forEach((d) => {
           const a = d.data() as Assignment;
-          if (a && (a.id || d.id)) fsAsgs.push({ ...a, id: a.id || d.id });
+          if (a && (a.id || d.id)) {
+            const id = a.id || d.id;
+            const existing = asgMap.get(id);
+            asgMap.set(id, { ...existing, ...a, id });
+          }
         });
-        allAsgs = fsAsgs;
-        saveStoredData("byline_assignments_v1", fsAsgs);
       } catch (fsErr) {
         console.warn("Firestore asg notice:", fsErr);
-        allAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
       }
+      const allAsgs = Array.from(asgMap.values());
+      saveStoredData("byline_assignments_v1", allAsgs);
       setAssignments(allAsgs);
 
-      // 2. Submissions
-      let allSubs: Submission[] = [];
+      // 2. Submissions (merge localStorage and Firestore)
+      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
+      const subMap = new Map<string, Submission>();
+      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
       try {
         const subSnap = await getDocs(collection(db, "submissions"));
-        const fsSubs: Submission[] = [];
         subSnap.forEach((d) => {
           const s = d.data() as Submission;
-          if (s && (s.id || d.id)) fsSubs.push({ ...s, id: s.id || d.id });
+          if (s && (s.id || d.id)) {
+            const id = s.id || d.id;
+            const existing = subMap.get(id);
+            subMap.set(id, { ...existing, ...s, id });
+          }
         });
-        allSubs = fsSubs;
-        saveStoredData("byline_submissions_v1", fsSubs);
       } catch (fsErr) {
         console.warn("Firestore subs notice:", fsErr);
-        allSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
       }
+      const allSubs = Array.from(subMap.values());
+      saveStoredData("byline_submissions_v1", allSubs);
       setSubmissions(allSubs);
 
       // 3. Claims
@@ -258,6 +288,17 @@ export default function Dashboard() {
     return timeB - timeA;
   });
 
+  // Filter claims based on user role
+  const visibleClaims = claims.filter((c) => {
+    if (isCorrespondent) {
+      if (c.correspondentId === user.uid || c.correspondentId === userEmailLower) return true;
+      if (c.correspondentEmail && userEmailLower && c.correspondentEmail.toLowerCase() === userEmailLower) return true;
+      if (c.correspondentName && user.name && c.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
+      return false;
+    }
+    return true;
+  });
+
   // Consolidated Pipeline of all stories
   interface UnifiedStory {
     id: string;
@@ -279,10 +320,25 @@ export default function Dashboard() {
   }
 
   const findMatchingSubmission = (asg: Assignment): Submission | undefined => {
-    return submissions.find((s) => {
+    return sortedSubmissions.find((s) => {
+      // 1. Direct ID matching
       if (s.assignmentId && (s.assignmentId === asg.id || s.assignmentId.toLowerCase() === asg.id.toLowerCase())) return true;
       if (s.id && s.id === asg.id) return true;
-      if (s.assignmentTitle && asg.title && s.assignmentTitle.trim().toLowerCase() === asg.title.trim().toLowerCase()) return true;
+      
+      // 2. Exact or substring title matching
+      if (s.assignmentTitle && asg.title) {
+        const sT = s.assignmentTitle.trim().toLowerCase();
+        const aT = asg.title.trim().toLowerCase();
+        if (sT === aT || sT.includes(aT) || aT.includes(sT)) return true;
+
+        // Keyword overlap match
+        const sWords = sT.split(/\s+/).filter((w) => w.length > 3);
+        const aWords = aT.split(/\s+/).filter((w) => w.length > 3);
+        const common = sWords.filter((w) => aWords.includes(w));
+        if (common.length >= 2 || (common.length >= 1 && sWords.length <= 2)) return true;
+      }
+
+      // 3. Correspondent match
       if (s.correspondentName && asg.correspondentName && s.correspondentName.toLowerCase().trim() === asg.correspondentName.toLowerCase().trim()) {
         if (s.assignmentTitle && asg.title) {
           const sT = s.assignmentTitle.toLowerCase();
@@ -290,6 +346,7 @@ export default function Dashboard() {
           if (sT.includes(aT) || aT.includes(sT)) return true;
         }
       }
+
       return false;
     });
   };
@@ -643,6 +700,19 @@ export default function Dashboard() {
                 <UploadCloud className="w-3.5 h-3.5" />
                 <span>Recent Story Filings ({sortedSubmissions.length})</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("claims")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === "claims"
+                    ? "bg-brand-gold text-slate-900 shadow-sm"
+                    : "text-blue-200 hover:text-white hover:bg-blue-900/40"
+                }`}
+              >
+                <DollarSign className="w-3.5 h-3.5" />
+                <span>Payment Claims ({visibleClaims.length})</span>
+              </button>
             </div>
           </div>
 
@@ -651,6 +721,7 @@ export default function Dashboard() {
               {activeTab === "all" && `Live feed of ${unifiedStories.length} stories across commissioning & filing`}
               {activeTab === "assignments" && `Showing ${sortedAssignments.length} Commissioned Story Briefs`}
               {activeTab === "filings" && `Showing ${sortedSubmissions.length} Filed Stories & Reviews`}
+              {activeTab === "claims" && `Showing ${visibleClaims.length} Payment Claims (${pendingClaims.length} Pending Finance)`}
             </span>
           </div>
         </div>
@@ -798,12 +869,11 @@ export default function Dashboard() {
                   </tr>
                 ) : (
                   sortedAssignments.map((asg) => {
-                    const matchSub = submissions.find(
-                      (s) => s.assignmentId === asg.id || (s.assignmentTitle && asg.title && s.assignmentTitle.toLowerCase().trim() === asg.title.toLowerCase().trim())
-                    );
+                    const matchSub = findMatchingSubmission(asg);
                     const isPending = asg.status === "submitted" || matchSub?.status === "pending_review";
                     const isCompleted = asg.status === "completed" || matchSub?.status === "approved";
                     const isRevision = matchSub?.status === "revision_needed";
+                    const isDeclined = matchSub?.status === "declined";
 
                     return (
                       <tr key={asg.id} className="hover:bg-blue-50/50 transition">
@@ -856,6 +926,10 @@ export default function Dashboard() {
                           ) : isRevision ? (
                             <span className="bg-orange-600 text-white text-xs font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
                               Revision Needed
+                            </span>
+                          ) : isDeclined ? (
+                            <span className="bg-brand-red text-white text-xs font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
+                              Declined
                             </span>
                           ) : isPending ? (
                             <span className="bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
@@ -1057,6 +1131,102 @@ export default function Dashboard() {
                               <span>{sub.status === "pending_review" ? "Review Filing" : "Review Queue"}</span>
                               <ArrowRight className="w-3.5 h-3.5" />
                             </Link>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Tab 4: Payment Claims Table */}
+        {activeTab === "claims" && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse table-byline">
+              <thead>
+                <tr className="bg-gray-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b">
+                  <th className="p-4">Claim Ref & Period</th>
+                  <th className="p-4">Correspondent & Bank Details</th>
+                  <th className="p-4">Included Stories</th>
+                  <th className="p-4">Total Amount</th>
+                  <th className="p-4">Payment Status</th>
+                  <th className="p-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y text-xs sm:text-sm">
+                {visibleClaims.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-gray-500">
+                      {isCorrespondent
+                        ? "No payment claims lodged yet. Go to 'Monthly Stories Report' to submit your claim."
+                        : "No payment claims lodged in the system yet."
+                      }
+                    </td>
+                  </tr>
+                ) : (
+                  visibleClaims.map((claim) => (
+                    <tr key={claim.id} className="hover:bg-blue-50/50 transition">
+                      <td className="p-4 font-semibold text-slate-900">
+                        <div className="text-brand-navy font-bold font-mono text-sm">{claim.id}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{claim.month}</div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">Lodged: {new Date(claim.createdAt).toLocaleDateString()}</div>
+                      </td>
+                      <td className="p-4">
+                        <span className="font-bold text-slate-800 block">{claim.correspondentName}</span>
+                        <span className="text-xs text-gray-500 block">{claim.bankDetails}</span>
+                        {claim.correspondentEmail && (
+                          <span className="text-[11px] text-gray-400 block">{claim.correspondentEmail}</span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <span className="bg-blue-100 text-brand-navy text-xs font-bold px-2.5 py-1 rounded-full border border-blue-200 inline-block">
+                          {claim.submissions ? claim.submissions.length : (claim.submissionIds ? claim.submissionIds.length : 0)} Verified Stories
+                        </span>
+                      </td>
+                      <td className="p-4 font-black text-brand-gold text-sm">
+                        KES {claim.totalAmountKES.toLocaleString()}
+                      </td>
+                      <td className="p-4">
+                        {claim.status === "paid" ? (
+                          <div>
+                            <span className="bg-brand-teal text-white text-xs font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Paid & Settled
+                            </span>
+                            {claim.paidAt && (
+                              <div className="text-[10px] text-gray-500 mt-1">
+                                Paid: {new Date(claim.paidAt).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-white" /> Pending Finance Payment
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="inline-flex items-center gap-2 justify-end">
+                          <Link
+                            to="/report"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-brand-navy hover:text-blue-900 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg shadow-xs transition"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Statement / PDF</span>
+                          </Link>
+
+                          {claim.status === "pending" && (
+                            <button
+                              type="button"
+                              onClick={() => handleMarkClaimAsPaid(claim.id)}
+                              className="inline-flex items-center gap-1 text-xs font-bold text-white bg-brand-teal hover:bg-emerald-800 px-3 py-1.5 rounded-lg shadow-xs transition cursor-pointer"
+                              title="Confirm payment received from Finance"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Mark as Paid</span>
+                            </button>
                           )}
                         </div>
                       </td>

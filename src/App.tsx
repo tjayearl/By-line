@@ -20,12 +20,6 @@ function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 pb-12">
         {children}
       </main>
-      <footer className="bg-brand-navy text-white text-xs py-4 px-6 border-t-2 border-brand-gold text-center">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Byline Contributor Portal v1.0 &bull; Kenya Broadcasting Corporation (KBC Digital)</span>
-          <span className="text-brand-gold font-semibold">Tech Stack: React JS | Firebase Auth & Firestore | jsPDF</span>
-        </div>
-      </footer>
     </div>
   );
 }

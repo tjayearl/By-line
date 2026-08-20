@@ -354,11 +354,11 @@ export default function ReviewSubmissions() {
         </button>
       </div>
 
-      {/* View-Only Mode Notice for Managing Editor */}
+      {/* Mode Notice for Managing Editor */}
       {isManagingEditor && (
         <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-lg shadow-sm">
-          <p className="text-xs text-amber-700 font-semibold">
-            👁️ View-Only Mode: As Managing Editor, you can confirm Published/Aired status and verify proof of use. Approve/Decline/Revision actions are reserved for Desk Editors.
+          <p className="text-xs text-amber-900 font-semibold">
+            🏛️ Managing Editor Sign-Off: You can select Published/Aired platforms, verify broadcast proof of use, and approve calculated correspondent payouts.
           </p>
         </div>
       )}
@@ -770,47 +770,38 @@ export default function ReviewSubmissions() {
                   className="w-full border rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy leading-relaxed"
                 />
 
-                {/* Approve/Decline/Revision Buttons - HIDDEN for Managing Editor */}
-                {!isManagingEditor && (
-                  <div className="flex flex-wrap gap-3 pt-2">
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => updateSubmissionStatus("approved")}
-                      className="bg-brand-teal hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                    >
-                      {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin text-white" /> : <CheckCircle2 className="w-4 h-4" />}
-                      <span>Approve Story Filing</span>
-                    </button>
+                {/* Approve/Decline/Revision Buttons */}
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateSubmissionStatus("approved")}
+                    className="bg-brand-teal hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin text-white" /> : <CheckCircle2 className="w-4 h-4" />}
+                    <span>{isManagingEditor ? "Confirm Airing & Approve Payout" : "Approve Story Filing"}</span>
+                  </button>
 
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => updateSubmissionStatus("revision_needed")}
-                      className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <AlertCircle className="w-4 h-4" />
-                      <span>Request Revision</span>
-                    </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateSubmissionStatus("revision_needed")}
+                    className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Request Revision</span>
+                  </button>
 
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => updateSubmissionStatus("declined")}
-                      className="bg-brand-red hover:bg-red-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      <span>Decline Story</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Show message for Managing Editor */}
-                {isManagingEditor && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
-                    As Managing Editor, you can view submissions and confirm Published/Aired status. Approve/Decline/Revision actions are restricted to Desk Editors.
-                  </div>
-                )}
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateSubmissionStatus("declined")}
+                    className="bg-brand-red hover:bg-red-800 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    <span>Decline Story</span>
+                  </button>
+                </div>
               </div>
 
               {actionMessage && (

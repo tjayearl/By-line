@@ -2,8 +2,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
+import { loadStoredData } from "../lib/dataStore";
 import type { AppUser, Role } from "../types";
 import { usersList } from "../data/mockData";
 
@@ -37,8 +38,8 @@ export const DEMO_USERS: Record<Role, AppUser> = {
   },
   managing_editor: {
     uid: "demo-managing-editor",
-    email: "managing.editor@kbc.co.ke",
-    name: "Samuel Ochieng (Managing Editor)",
+    email: "zippyk80@gmail.com",
+    name: "ZIPPORAH KWAMBOKA OGANDA (Managing Editor)",
     role: "managing_editor",
   },
   editor: {
@@ -85,18 +86,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFirebaseUser(fbUser);
 
       if (fbUser) {
+        const userEmail = (fbUser.email || "").toLowerCase().trim();
         let resolvedRole: Role = "correspondent";
-        let resolvedName = fbUser.displayName ?? fbUser.email ?? "";
+        let resolvedName = fbUser.displayName ?? fbUser.email ?? "User";
 
         try {
+          // 1. Check token custom claim
           const tokenResult = await fbUser.getIdTokenResult();
           const claimRole = tokenResult.claims.role as Role | undefined;
 
           if (claimRole) {
             resolvedRole = claimRole;
           } else {
-            // 1. Check Firestore user profile first
             let profileFound = false;
+
+            // 2. Check Firestore doc by UID
             try {
               const profileRef = doc(db, "users", fbUser.uid);
               const profileSnap = await getDoc(profileRef);
@@ -112,21 +116,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
               }
             } catch (fsErr) {
-              console.warn("Could not query Firestore user profile:", fsErr);
+              console.warn("Could not query Firestore user profile by UID:", fsErr);
             }
 
-            // 2. If not found in Firestore, check mock user list
-            if (!profileFound && fbUser.email) {
-              const mockUser = usersList.find((u) => u.email.toLowerCase() === fbUser.email?.toLowerCase());
+            // 3. If not found by UID, search Firestore by email
+            if (!profileFound && userEmail) {
+              try {
+                const uSnap = await getDocs(collection(db, "users"));
+                uSnap.forEach((d) => {
+                  const u = d.data() as any;
+                  if (u && u.email && u.email.toLowerCase().trim() === userEmail) {
+                    if (u.role) {
+                      resolvedRole = u.role as Role;
+                      profileFound = true;
+                    }
+                    if (u.name) {
+                      resolvedName = u.name;
+                    }
+                  }
+                });
+
+                if (profileFound) {
+                  try {
+                    await setDoc(doc(db, "users", fbUser.uid), {
+                      uid: fbUser.uid,
+                      email: userEmail,
+                      role: resolvedRole,
+                      name: resolvedName,
+                    }, { merge: true });
+                  } catch {}
+                }
+              } catch (fsErr2) {
+                console.warn("Could not query Firestore users collection by email:", fsErr2);
+              }
+            }
+
+            // 4. Check locally saved custom users from User Admin
+            if (!profileFound && userEmail) {
+              const customUsers = loadStoredData<any[]>("byline_custom_users_v1", []);
+              const foundCustom = customUsers.find(
+                (u) => u.email && u.email.toLowerCase().trim() === userEmail
+              );
+              if (foundCustom) {
+                if (foundCustom.role) {
+                  resolvedRole = foundCustom.role as Role;
+                  profileFound = true;
+                }
+                if (foundCustom.name) {
+                  resolvedName = foundCustom.name;
+                }
+              }
+            }
+
+            // 5. Check mock user list (usersList)
+            if (!profileFound && userEmail) {
+              const mockUser = usersList.find(
+                (u) => u.email && u.email.toLowerCase().trim() === userEmail
+              );
               if (mockUser) {
                 resolvedRole = mockUser.role as Role;
                 if (mockUser.name) resolvedName = mockUser.name;
+                profileFound = true;
+              }
+            }
+
+            // 6. Check stored role in localStorage
+            if (!profileFound) {
+              const storedRole = localStorage.getItem("role") as Role | null;
+              if (storedRole) {
+                resolvedRole = storedRole;
               }
             }
           }
         } catch (err) {
           console.warn("Could not fetch claims or profile document, falling back:", err);
         }
+
+        // Keep localStorage updated with active role
+        localStorage.setItem("role", resolvedRole);
 
         setRealUser({
           uid: fbUser.uid,

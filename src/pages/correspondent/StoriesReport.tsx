@@ -260,43 +260,61 @@ export default function StoriesReport() {
             <thead>
               <tr className="bg-gray-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b">
                 <th className="p-4">Filing Title & ID</th>
+                {user?.role !== "correspondent" && <th className="p-4">Correspondent</th>}
                 <th className="p-4">Published Platforms</th>
                 <th className="p-4">Proof Status</th>
                 <th className="p-4 text-right">Calculated Rate</th>
               </tr>
             </thead>
             <tbody className="divide-y text-xs sm:text-sm">
-              {verifiedSubmissions.map((sub) => (
-                <tr key={sub.id} className="hover:bg-blue-50/40 transition">
-                  <td className="p-4">
-                    <div className="font-bold text-brand-navy">{sub.assignmentTitle}</div>
-                    <div className="text-xs text-gray-500 font-mono mt-0.5">{sub.id}</div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-wrap gap-1">
-                      {sub.publishedPlatforms.map((p) => (
-                        <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
-                          {p.replace("_", " ").toUpperCase()}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    {sub.proofConfirmed ? (
-                      <span className="bg-brand-teal text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Verified
-                      </span>
-                    ) : (
-                      <span className="bg-amber-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                        Pending Proof
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-4 text-right font-bold text-brand-gold">
-                    KES {sub.calculatedAmountKES.toLocaleString()}
+              {verifiedSubmissions.length === 0 ? (
+                <tr>
+                  <td colSpan={user?.role !== "correspondent" ? 5 : 4} className="p-8 text-center text-gray-400">
+                    No approved story filings found for this period.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                verifiedSubmissions.map((sub) => (
+                  <tr key={sub.id} className="hover:bg-blue-50/40 transition">
+                    <td className="p-4">
+                      <div className="font-bold text-brand-navy">{sub.assignmentTitle}</div>
+                      <div className="text-xs text-gray-500 font-mono mt-0.5">{sub.id}</div>
+                    </td>
+                    {user?.role !== "correspondent" && (
+                      <td className="p-4">
+                        <span className="font-bold text-slate-800 block text-xs">{sub.correspondentName}</span>
+                      </td>
+                    )}
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1">
+                        {sub.publishedPlatforms && sub.publishedPlatforms.length > 0 ? (
+                          sub.publishedPlatforms.map((p) => (
+                            <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
+                              {p.replace("_", " ").toUpperCase()}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-gray-400 italic text-xs">None recorded</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      {sub.proofConfirmed ? (
+                        <span className="bg-brand-teal text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Verified
+                        </span>
+                      ) : (
+                        <span className="bg-amber-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                          Pending Proof
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-right font-bold text-brand-gold">
+                      KES {sub.calculatedAmountKES ? sub.calculatedAmountKES.toLocaleString() : 0}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

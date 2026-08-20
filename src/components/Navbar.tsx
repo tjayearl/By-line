@@ -2,7 +2,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { 
   LogOut, 
   Settings, 
-  Users 
+  Users,
+  FileText,
+  ClipboardCheck
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
@@ -86,17 +88,43 @@ export default function Navbar() {
         <div className="bg-blue-950/90 border-t border-blue-900/80 px-4 sm:px-6 py-1.5 overflow-x-auto">
           <div className="max-w-7xl mx-auto flex items-center gap-1 text-xs whitespace-nowrap">
             {isManagingEditor && (
-              <Link
-                to="/admin/rates"
-                className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
-                  location.pathname === "/admin/rates"
-                    ? "bg-brand-gold text-slate-900 shadow-xs"
-                    : "text-blue-200 hover:text-white hover:bg-blue-900/50"
-                }`}
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>Rate Cards</span>
-              </Link>
+              <>
+                <Link
+                  to="/admin/rates"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/admin/rates"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Rate Cards</span>
+                </Link>
+
+                <Link
+                  to="/report"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/report"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Payment Summaries</span>
+                </Link>
+
+                <Link
+                  to="/editor/review"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/review"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>Review & Airing Confirmation</span>
+                </Link>
+              </>
             )}
 
             {isSuperAdmin && (

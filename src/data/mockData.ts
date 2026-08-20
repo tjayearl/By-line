@@ -61,6 +61,13 @@ export const usersList: MockUser[] = [
     department: "Digital Directorate",
   },
   {
+    id: "usr-006z",
+    email: "zippyk80@gmail.com",
+    name: "ZIPPORAH KWAMBOKA OGANDA (Managing Editor)",
+    role: "managing_editor",
+    department: "Editorial Board",
+  },
+  {
     id: "usr-006",
     email: "managing.editor@kbc.co.ke",
     name: "Samuel Ochieng (Managing Editor)",

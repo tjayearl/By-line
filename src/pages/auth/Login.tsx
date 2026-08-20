@@ -3,10 +3,11 @@ import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../firebase";
 import { usersList } from "../../data/mockData";
+import { loadStoredData } from "../../lib/dataStore";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -31,27 +32,13 @@ export default function Login() {
       );
 
       const user = userCredential.user;
+      const userEmail = (user.email || "").toLowerCase().trim();
 
       // Get token + role claims
       const tokenResult = await user.getIdTokenResult(true);
       let role = tokenResult.claims.role as string | undefined;
 
-      console.log("USER EMAIL:", user.email);
-      console.log("USER UID:", user.uid);
-      console.log("USER CLAIMS:", tokenResult.claims);
-      console.log("ROLE:", role);
-
-      // 1. Fallback to mock user list role if no custom claim exists
-      if (!role && user.email) {
-        const mockUser = usersList.find(
-          (u) => u.email.toLowerCase() === user.email?.toLowerCase()
-        );
-        if (mockUser) {
-          role = mockUser.role;
-        }
-      }
-
-      // 2. Fallback to Firestore user profile if registered dynamically
+      // 1. Check Firestore user profile by UID
       if (!role && user.uid) {
         try {
           const profileSnap = await getDoc(doc(db, "users", user.uid));
@@ -62,7 +49,43 @@ export default function Login() {
             }
           }
         } catch (fsErr) {
-          console.warn("Firestore role lookup error in login:", fsErr);
+          console.warn("Firestore role lookup error in login by UID:", fsErr);
+        }
+      }
+
+      // 2. Search Firestore users collection by email
+      if (!role && userEmail) {
+        try {
+          const uSnap = await getDocs(collection(db, "users"));
+          uSnap.forEach((d) => {
+            const u = d.data() as any;
+            if (u && u.email && u.email.toLowerCase().trim() === userEmail) {
+              if (u.role) role = u.role;
+            }
+          });
+        } catch (fsErr2) {
+          console.warn("Firestore users lookup by email error:", fsErr2);
+        }
+      }
+
+      // 3. Fallback to locally saved custom users from User Admin
+      if (!role && userEmail) {
+        const customUsers = loadStoredData<any[]>("byline_custom_users_v1", []);
+        const foundCustom = customUsers.find(
+          (u) => u.email && u.email.toLowerCase().trim() === userEmail
+        );
+        if (foundCustom && foundCustom.role) {
+          role = foundCustom.role;
+        }
+      }
+
+      // 4. Fallback to mock user list role if no custom claim exists
+      if (!role && userEmail) {
+        const mockUser = usersList.find(
+          (u) => u.email.toLowerCase() === userEmail
+        );
+        if (mockUser) {
+          role = mockUser.role;
         }
       }
 

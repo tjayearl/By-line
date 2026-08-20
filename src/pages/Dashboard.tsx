@@ -635,6 +635,20 @@ export default function Dashboard() {
 
         {isManagement && (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <ActionCard
+              to="/admin/rates"
+              icon={<Settings className="w-6 h-6" />}
+              title="Rate Card System Design"
+              desc="Set and update base rates per platform (TV National, Regional, Radio, Web, Social) applied across KBC."
+              tag="Rate Engine"
+            />
+            <ActionCard
+              to="/report"
+              icon={<FileText className="w-6 h-6" />}
+              title="Payment Summaries & Reports"
+              desc="Review all approved story filings, platform breakdowns, monthly claim statements, and export formal PDF invoices."
+              tag="Financial Gate"
+            />
             {user.role === "super_admin" && (
               <ActionCard
                 to="/admin/users"
@@ -644,13 +658,6 @@ export default function Dashboard() {
                 tag="Super Admin"
               />
             )}
-            <ActionCard
-              to="/admin/rates"
-              icon={<Settings className="w-6 h-6" />}
-              title="Rate Card System Design"
-              desc="Set and update base rates per platform (TV National, Regional, Radio, Web, Social) applied across KBC."
-              tag="Rate Engine"
-            />
           </div>
         )}
       </div>

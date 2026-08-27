@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { FilePlus, Send, RefreshCw, CheckCircle2, AlertCircle, Trash2, AlertTriangle, X } from "lucide-react";
 import { doc, getDocs, collection, setDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS, deleteAssignment } from "../../lib/dataStore";
+import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS, deleteAssignment, parseBankDetails } from "../../lib/dataStore";
 import { sendAssignmentCommissionEmail } from "../../lib/emailService";
 import type { Assignment, Correspondent, Platform } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -57,12 +57,16 @@ export default function CreateAssignment() {
         uSnap.forEach((d) => {
           const u = d.data() as any;
           if (u.role === "correspondent" && u.email) {
+            const parsed = parseBankDetails(u.bankDetails || "");
             corrMap.set(d.id, {
               id: d.id,
               name: u.name || u.email,
               email: u.email,
               phone: u.phone || "",
               idNumber: u.idNumber || "",
+              bankName: u.bankName || parsed.bankName,
+              branch: u.branch || parsed.branch,
+              accountNumber: u.accountNumber || parsed.accountNumber,
               bankDetails: u.bankDetails || "",
               specialisation: u.specialisation || "News",
               county: u.county || "Nairobi",

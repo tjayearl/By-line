@@ -1,19 +1,120 @@
-import { useState, useEffect } from "react";
-import { FileText, Download, CheckCircle2, Mail } from "lucide-react";
-import { doc, getDocs, collection, setDoc, updateDoc } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
+import { 
+  FileText, 
+  Download, 
+  CheckCircle2, 
+  ExternalLink, 
+  Tv, 
+  Radio, 
+  Globe, 
+  Share2, 
+  Clock, 
+  Search, 
+  Filter, 
+  DollarSign, 
+  FileSpreadsheet, 
+  Paperclip, 
+  CloudDownload,
+  AlertCircle,
+  Calendar
+} from "lucide-react";
+import { getDocs, collection } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { loadStoredData, saveStoredData, INITIAL_SUBMISSIONS, INITIAL_CLAIMS } from "../../lib/dataStore";
+import { 
+  loadStoredData, 
+  INITIAL_SUBMISSIONS, 
+  INITIAL_CORRESPONDENTS 
+} from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
-import { generateStoriesReportPDF } from "../../lib/pdfReportGenerator";
-import type { PaymentClaim, Submission } from "../../types";
+import { 
+  generateStoriesPublicationReportPDF, 
+  exportStoriesPublicationReportCSV 
+} from "../../lib/pdfReportGenerator";
+import type { Correspondent, Platform, Submission } from "../../types";
+
+type DatePreset = "this_month" | "last_month" | "last_30_days" | "last_90_days" | "year_to_date" | "all_time" | "custom";
+
+function getPresetDates(preset: DatePreset) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  if (preset === "this_month") {
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month + 1, 0);
+    return {
+      start: start.toISOString().split("T")[0],
+      end: end.toISOString().split("T")[0],
+      label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+    };
+  }
+  if (preset === "last_month") {
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 0);
+    return {
+      start: start.toISOString().split("T")[0],
+      end: end.toISOString().split("T")[0],
+      label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+    };
+  }
+  if (preset === "last_30_days") {
+    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return {
+      start: start.toISOString().split("T")[0],
+      end: now.toISOString().split("T")[0],
+      label: `Past 30 Days (${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})`,
+    };
+  }
+  if (preset === "last_90_days") {
+    const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return {
+      start: start.toISOString().split("T")[0],
+      end: now.toISOString().split("T")[0],
+      label: `Past 90 Days (${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})`,
+    };
+  }
+  if (preset === "year_to_date") {
+    const start = new Date(year, 0, 1);
+    const end = new Date(year, 11, 31);
+    return {
+      start: start.toISOString().split("T")[0],
+      end: end.toISOString().split("T")[0],
+      label: `Year ${year} (${start.toLocaleDateString("en-US", { month: "short", year: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", year: "numeric" })})`,
+    };
+  }
+  if (preset === "all_time") {
+    return {
+      start: "2025-01-01",
+      end: "2027-12-31",
+      label: "All Time Cumulative",
+    };
+  }
+  return {
+    start: "2026-08-01",
+    end: "2026-08-31",
+    label: "Custom Period",
+  };
+}
 
 export default function StoriesReport() {
   const { user } = useAuth();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [claims, setClaims] = useState<PaymentClaim[]>([]);
+  const [correspondents, setCorrespondents] = useState<Correspondent[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedCorrespondentId, setSelectedCorrespondentId] = useState<string>("all");
+  const defaultDates = getPresetDates("this_month");
+  const [selectedPreset, setSelectedPreset] = useState<DatePreset>("this_month");
+  const [startDate, setStartDate] = useState(defaultDates.start);
+  const [endDate, setEndDate] = useState(defaultDates.end);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const loadAllData = async () => {
+  const isCorrespondent = user?.role === "correspondent";
+  const userEmailLower = (user?.email || "").toLowerCase().trim();
+
+  const loadData = async () => {
     // 1. Submissions
     const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
     const subMap = new Map<string, Submission>();
@@ -31,37 +132,41 @@ export default function StoriesReport() {
     } catch (fsErr) {
       console.warn("Firestore subs notice in StoriesReport:", fsErr);
     }
-    const allSubs = Array.from(subMap.values());
-    setSubmissions(allSubs);
+    setSubmissions(Array.from(subMap.values()));
 
-    // 2. Claims
-    const localClaims = loadStoredData<PaymentClaim[]>("byline_claims_v1", INITIAL_CLAIMS);
-    const claimMap = new Map<string, PaymentClaim>();
-    localClaims.forEach((c) => { if (c && c.id) claimMap.set(c.id, c); });
+    // 2. Correspondents
+    const corrMap = new Map<string, Correspondent>();
+    INITIAL_CORRESPONDENTS.forEach((c) => corrMap.set(c.id, c));
+    const localCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", []);
+    localCorrs.forEach((c) => corrMap.set(c.id, c));
     try {
-      const claimSnap = await getDocs(collection(db, "claims"));
-      claimSnap.forEach((d) => {
-        const c = d.data() as PaymentClaim;
-        if (c && (c.id || d.id)) {
-          const id = c.id || d.id;
-          const existing = claimMap.get(id);
-          claimMap.set(id, { ...existing, ...c, id });
+      const uSnap = await getDocs(collection(db, "users"));
+      uSnap.forEach((d) => {
+        const u = d.data() as any;
+        if (u.role === "correspondent") {
+          corrMap.set(d.id, {
+            id: d.id,
+            name: u.name || u.email,
+            email: u.email,
+            phone: u.phone || "",
+            idNumber: u.idNumber || "",
+            bankDetails: u.bankDetails || "",
+            specialisation: u.specialisation || "News",
+            county: u.county || "Nairobi",
+            registeredAt: u.registeredAt || new Date().toISOString(),
+          });
         }
       });
     } catch (fsErr) {
-      console.warn("Firestore claims notice in StoriesReport:", fsErr);
+      console.warn("Firestore users notice:", fsErr);
     }
-    const allClaims = Array.from(claimMap.values());
-    setClaims(allClaims);
+    setCorrespondents(Array.from(corrMap.values()));
   };
 
   useEffect(() => {
-    loadAllData();
+    loadData();
 
-    const handleUpdate = () => {
-      loadAllData();
-    };
-
+    const handleUpdate = () => loadData();
     window.addEventListener("storage", handleUpdate);
     window.addEventListener("byline:data_updated", handleUpdate);
 
@@ -71,296 +176,600 @@ export default function StoriesReport() {
     };
   }, []);
 
-  const userEmailLower = (user?.email || "").toLowerCase().trim();
-
-  const verifiedSubmissions = submissions.filter((s) => {
-    if (s.status !== "approved") return false;
-    if (user?.role === "correspondent") {
-      if (s.correspondentId === user.uid || s.correspondentId === userEmailLower) return true;
-      if (s.correspondentName && user.name && s.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
-      return false;
+  const handlePresetSelect = (preset: DatePreset) => {
+    setSelectedPreset(preset);
+    if (preset !== "custom") {
+      const dates = getPresetDates(preset);
+      setStartDate(dates.start);
+      setEndDate(dates.end);
     }
-    return true;
-  });
-
-  const grandTotalCalculated = verifiedSubmissions.reduce((sum, s) => sum + s.calculatedAmountKES, 0);
-
-  // Active claim
-  const currentClaim: PaymentClaim = claims.find((c) => c.status === "pending") || {
-    id: `CLAIM-2026-08-${String(claims.length + 1).padStart(3, "0")}`,
-    correspondentId: user?.uid || "corr-101",
-    correspondentName: user?.name || "Jane Wambui",
-    correspondentEmail: user?.email || "jane.wambui@kbc.co.ke",
-    correspondentPhone: user?.phone || "+254 712 345 678",
-    bankDetails: (user as any)?.bankDetails || "KCB Bank - A/C 1184920491 (Nakuru Branch)",
-    month: "August 2026",
-    submissionIds: verifiedSubmissions.map((s) => s.id),
-    submissions: verifiedSubmissions,
-    totalAmountKES: grandTotalCalculated || 18000,
-    status: "pending",
-    createdAt: new Date().toISOString(),
   };
 
-  const handleDownloadPDF = () => {
-    generateStoriesReportPDF(currentClaim);
-    setActionMessage(`Downloaded PDF Stories Report for ${currentClaim.month}! Attach this document to your claim.`);
-  };
+  const periodLabel = useMemo(() => {
+    if (selectedPreset === "all_time") return "All Time Cumulative";
+    if (startDate && endDate) {
+      const s = new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const e = new Date(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return `${s} to ${e}`;
+    }
+    if (startDate) {
+      return `From ${new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    }
+    if (endDate) {
+      return `Until ${new Date(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    }
+    return "All Time";
+  }, [selectedPreset, startDate, endDate]);
 
-  const handleLodgePaymentRequest = async () => {
-    try {
-      const claimToSave: PaymentClaim = {
-        ...currentClaim,
-        totalAmountKES: grandTotalCalculated || currentClaim.totalAmountKES,
-        submissionIds: verifiedSubmissions.map((s) => s.id),
-        submissions: verifiedSubmissions,
-        createdAt: new Date().toISOString(),
-        status: "pending",
-      };
-
-      try {
-        await setDoc(doc(db, "claims", claimToSave.id), claimToSave);
-      } catch (fsErr) {
-        console.warn("Firestore save claim notice:", fsErr);
+  // Filter Submissions
+  const filteredStories = useMemo(() => {
+    return submissions.filter((s) => {
+      // 1. Correspondent Scope
+      if (isCorrespondent) {
+        const matchesId = s.correspondentId === user?.uid || s.correspondentId === userEmailLower;
+        const matchesName = s.correspondentName && user?.name && s.correspondentName.toLowerCase() === user.name.toLowerCase();
+        if (!matchesId && !matchesName) return false;
+      } else if (selectedCorrespondentId !== "all") {
+        const matchesId = s.correspondentId === selectedCorrespondentId;
+        const targetCorr = correspondents.find((c) => c.id === selectedCorrespondentId);
+        const matchesName = targetCorr && s.correspondentName && s.correspondentName.toLowerCase() === targetCorr.name.toLowerCase();
+        if (!matchesId && !matchesName) return false;
       }
 
-      const existingIndex = claims.findIndex((c) => c.id === claimToSave.id);
-      const updatedClaims = existingIndex >= 0
-        ? claims.map((c) => (c.id === claimToSave.id ? claimToSave : c))
-        : [claimToSave, ...claims];
+      // 2. Search Query (Title, ID, textContent)
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesTitle = (s.assignmentTitle || "").toLowerCase().includes(q);
+        const matchesId = (s.id || "").toLowerCase().includes(q);
+        const matchesBody = (s.textContent || "").toLowerCase().includes(q);
+        const matchesNotes = (s.proofOfUse?.notes || "").toLowerCase().includes(q);
+        if (!matchesTitle && !matchesId && !matchesBody && !matchesNotes) return false;
+      }
 
-      setClaims(updatedClaims);
-      saveStoredData("byline_claims_v1", updatedClaims);
+      // 3. Platform Filter
+      if (selectedPlatform !== "all") {
+        if (!s.publishedPlatforms || !s.publishedPlatforms.includes(selectedPlatform as Platform)) {
+          return false;
+        }
+      }
 
-      try {
-        window.dispatchEvent(new Event("storage"));
-        window.dispatchEvent(new CustomEvent("byline:data_updated"));
-      } catch {}
+      // 4. Verification / Status Filter
+      if (selectedStatus === "verified" && !s.proofConfirmed) return false;
+      if (selectedStatus === "pending_proof" && s.proofConfirmed) return false;
+      if (selectedStatus === "approved" && s.status !== "approved") return false;
 
-      setActionMessage(`Payment claim [${claimToSave.id}] for KES ${claimToSave.totalAmountKES.toLocaleString()} lodged with Finance (finance@kbc.co.ke). Email alert dispatched!`);
-    } catch (err: any) {
-      setActionMessage(`Error lodging claim: ${err?.message || "Please try again."}`);
-    }
+      // 5. Date Window / Duration Filter
+      if (selectedPreset !== "all_time" && (startDate || endDate)) {
+        const rawDate = s.submittedAt || s.publishedAt || "2026-08-01";
+        try {
+          const subDateObj = new Date(rawDate);
+          if (!isNaN(subDateObj.getTime())) {
+            const subDateStr = subDateObj.toISOString().split("T")[0];
+            if (startDate && subDateStr < startDate) return false;
+            if (endDate && subDateStr > endDate) return false;
+          }
+        } catch {
+          // ignore date parse errors
+        }
+      }
+
+      return true;
+    });
+  }, [submissions, isCorrespondent, user, userEmailLower, selectedCorrespondentId, correspondents, searchQuery, selectedPlatform, selectedStatus, selectedPreset, startDate, endDate]);
+
+  // Statistics
+  const totalVerifiedCount = useMemo(() => {
+    return filteredStories.filter((s) => s.proofConfirmed).length;
+  }, [filteredStories]);
+
+  const tvAiredCount = useMemo(() => {
+    return filteredStories.filter((s) => 
+      s.publishedPlatforms?.includes("tv_national") || s.publishedPlatforms?.includes("tv_regional")
+    ).length;
+  }, [filteredStories]);
+
+  const radioAiredCount = useMemo(() => {
+    return filteredStories.filter((s) => 
+      s.publishedPlatforms?.includes("radio_national") || s.publishedPlatforms?.includes("radio_vernacular")
+    ).length;
+  }, [filteredStories]);
+
+  const webSocialCount = useMemo(() => {
+    return filteredStories.filter((s) => 
+      s.publishedPlatforms?.includes("website") || s.publishedPlatforms?.includes("social")
+    ).length;
+  }, [filteredStories]);
+
+  // Download Stories Report PDF
+  const handleDownloadPDF = () => {
+    const scopeName = isCorrespondent 
+      ? (user?.name || "Correspondent")
+      : selectedCorrespondentId !== "all"
+        ? (correspondents.find((c) => c.id === selectedCorrespondentId)?.name || "Selected Correspondent")
+        : "All Correspondents";
+
+    generateStoriesPublicationReportPDF({
+      correspondentName: scopeName,
+      correspondentEmail: user?.email,
+      periodLabel: periodLabel,
+      submissions: filteredStories,
+      generatedBy: user?.name || "KBC News Desk",
+    });
+
+    setActionMessage(`Downloaded Stories Report PDF for (${periodLabel}) with ${filteredStories.length} published stories!`);
   };
 
-  const handleMarkAsPaid = async (claimId: string) => {
-    const paidTimestamp = new Date().toISOString();
-    const updated = claims.map((c) =>
-      c.id === claimId ? { ...c, status: "paid" as const, paidAt: paidTimestamp } : c
-    );
-    setClaims(updated);
-    saveStoredData("byline_claims_v1", updated);
+  // Export Stories CSV
+  const handleExportCSV = () => {
+    const scopeName = isCorrespondent 
+      ? (user?.name || "Correspondent")
+      : selectedCorrespondentId !== "all"
+        ? (correspondents.find((c) => c.id === selectedCorrespondentId)?.name || "Selected")
+        : "All";
 
-    try {
-      await updateDoc(doc(db, "claims", claimId), { status: "paid", paidAt: paidTimestamp });
-    } catch (fsErr) {
-      console.warn("Firestore mark paid notice:", fsErr);
-    }
+    exportStoriesPublicationReportCSV({
+      correspondentName: scopeName,
+      submissions: filteredStories,
+      periodLabel: periodLabel,
+    });
 
-    try {
-      window.dispatchEvent(new Event("storage"));
-      window.dispatchEvent(new CustomEvent("byline:data_updated"));
-    } catch {}
-
-    setActionMessage(`Claim [${claimId}] successfully marked as PAID! Payment settlement confirmed.`);
+    setActionMessage(`Exported Stories Report CSV for (${periodLabel}) with ${filteredStories.length} records!`);
   };
 
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="bg-brand-navy text-white p-6 rounded-2xl shadow-md border-b-4 border-brand-gold flex items-center justify-between">
+      <div className="bg-brand-navy text-white p-6 rounded-2xl shadow-md border-b-4 border-brand-gold flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-brand-gold font-semibold text-xs uppercase tracking-wider">
-            <FileText className="w-4 h-4" /> US-11 to US-14 Invoice Generation & Finance Tracking
+            <FileText className="w-4 h-4" /> US-05 / US-10 Published Stories & Broadcast Airing Archive
           </div>
-          <h1 className="text-2xl font-black text-white mt-1">Monthly Stories Report & Payment Claims</h1>
+          <h1 className="text-2xl font-black text-white mt-1">Published Stories & Airing Report</h1>
           <p className="text-xs text-blue-200 mt-1">
-            Auto-generate downloadable PDF Stories Reports and track payment processing status with KBC Finance.
+            Complete editorial archive of your filed stories, where they were broadcast, and direct verification links.
           </p>
         </div>
 
-        <button
-          onClick={handleDownloadPDF}
-          className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2.5 rounded-xl shadow text-xs sm:text-sm flex items-center gap-2"
-        >
-          <Download className="w-4 h-4" />
-          <span>Download PDF Report</span>
-        </button>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-          <p className="text-xs font-bold text-gray-500 uppercase">Verified Stories</p>
-          <h3 className="text-2xl font-black text-brand-navy mt-1">{verifiedSubmissions.length}</h3>
-          <p className="text-xs text-gray-500 mt-1">Approved & proof-verified filings</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-          <p className="text-xs font-bold text-gray-500 uppercase">Claim Month</p>
-          <h3 className="text-2xl font-black text-brand-navy mt-1">August 2026</h3>
-          <p className="text-xs text-gray-500 mt-1">Current processing period</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-brand-gold shadow-sm">
-          <p className="text-xs font-bold text-gray-500 uppercase">Total Amount Due</p>
-          <h3 className="text-2xl font-black text-brand-gold mt-1">
-            KES {currentClaim.totalAmountKES.toLocaleString()}
-          </h3>
-          <p className="text-xs text-gray-500 mt-1">Calculated via active rate card</p>
-        </div>
-      </div>
-
-      {/* Action Banner for Finance Submission */}
-      <div className="bg-brand-navy text-white p-6 rounded-2xl shadow border-l-8 border-brand-teal flex flex-col md:flex-row items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="bg-brand-teal text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">
-              US-12 / US-13 Workflow
-            </span>
-            <span className="text-brand-gold text-xs font-semibold">KBC Finance Gateway</span>
-          </div>
-          <h3 className="text-lg font-bold text-white mt-1">Submit Monthly Payment Request to Finance</h3>
-          <p className="text-xs text-blue-200 mt-0.5">
-            Download your auto-generated PDF Stories Report and lodge an automated email alert to KBC Finance.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleDownloadPDF}
-            className="bg-white text-brand-navy hover:bg-gray-100 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow"
+            className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2.5 rounded-xl shadow text-xs sm:text-sm flex items-center gap-2 transition cursor-pointer"
+            title="Download published stories report PDF with links & platform details"
           >
-            <Download className="w-4 h-4 text-brand-gold" /> Download PDF
+            <Download className="w-4 h-4" />
+            <span>Download Stories PDF</span>
           </button>
+
           <button
-            onClick={handleLodgePaymentRequest}
-            className="bg-brand-teal hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow"
+            onClick={handleExportCSV}
+            className="bg-blue-900 hover:bg-blue-800 text-white font-bold px-3.5 py-2.5 rounded-xl shadow text-xs sm:text-sm flex items-center gap-2 transition cursor-pointer border border-blue-700"
+            title="Export stories to CSV / Excel spreadsheet"
           >
-            <Mail className="w-4 h-4 text-brand-gold" /> Send to Finance
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <span>Export CSV</span>
           </button>
+
+          <Link
+            to="/payment-report"
+            className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-3.5 py-2.5 rounded-xl shadow text-xs sm:text-sm flex items-center gap-2 transition"
+            title="Switch to duration-based Payment Report"
+          >
+            <DollarSign className="w-4 h-4 text-yellow-300" />
+            <span>Go to Payment Report</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* Summary KPI Cards */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold text-gray-500 uppercase">Total Stories Displayed</p>
+          <h3 className="text-2xl font-black text-brand-navy mt-1">{filteredStories.length}</h3>
+          <p className="text-xs text-gray-500 mt-1">Filed by correspondent</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1">
+            <Tv className="w-3.5 h-3.5 text-blue-600" /> TV Broadcasts
+          </p>
+          <h3 className="text-2xl font-black text-brand-navy mt-1">{tvAiredCount}</h3>
+          <p className="text-xs text-gray-500 mt-1">National & Regional TV packages</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1">
+            <Radio className="w-3.5 h-3.5 text-purple-600" /> Radio Airings
+          </p>
+          <h3 className="text-2xl font-black text-brand-navy mt-1">{radioAiredCount}</h3>
+          <p className="text-xs text-gray-500 mt-1">National & Vernacular radio feeds</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-teal-500/40 shadow-sm bg-linear-to-br from-white to-emerald-50/40">
+          <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5 text-brand-teal" /> Proof Verified
+          </p>
+          <h3 className="text-2xl font-black text-brand-teal mt-1">{totalVerifiedCount}</h3>
+          <p className="text-xs text-gray-500 mt-1">{webSocialCount} Web/Social articles & clips</p>
+        </div>
+      </div>
+
+      {/* Interactive Duration & Filter Controls Card */}
+      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-brand-gold" />
+            <h2 className="text-sm font-bold text-brand-navy">Set Stories Duration & Date Range</h2>
+          </div>
+          <span className="text-xs text-gray-500 font-medium font-mono">
+            Active: <strong className="text-slate-800">{periodLabel}</strong> (Showing <strong className="text-slate-900">{filteredStories.length}</strong> stories)
+          </span>
+        </div>
+
+        {/* Quick Presets Buttons */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-bold text-slate-700 mr-1 flex items-center gap-1">
+            <Filter className="w-3 h-3 text-gray-400" /> Presets:
+          </span>
+          {[
+            { id: "this_month", label: "This Month" },
+            { id: "last_month", label: "Last Month" },
+            { id: "last_30_days", label: "Past 30 Days" },
+            { id: "last_90_days", label: "Past 90 Days / Quarter" },
+            { id: "year_to_date", label: "Year 2026" },
+            { id: "all_time", label: "All Time" },
+            { id: "custom", label: "Custom Range" },
+          ].map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => handlePresetSelect(preset.id as DatePreset)}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                selectedPreset === preset.id
+                  ? "bg-brand-navy text-white shadow-xs"
+                  : "bg-gray-100 hover:bg-gray-200 text-slate-700"
+              }`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom Start & End Date Inputs + Filters */}
+        <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+          {/* Start Date (From) */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Start Date (From)
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setSelectedPreset("custom");
+              }}
+              className="w-full border rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-brand-navy bg-gray-50 focus:bg-white"
+            />
+          </div>
+
+          {/* End Date (To) */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              End Date (To)
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setSelectedPreset("custom");
+              }}
+              className="w-full border rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-brand-navy bg-gray-50 focus:bg-white"
+            />
+          </div>
+
+          {/* Where Published (Platform Filter) */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Where Published (Platform)
+            </label>
+            <select
+              value={selectedPlatform}
+              onChange={(e) => setSelectedPlatform(e.target.value)}
+              className="w-full border rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy bg-gray-50 focus:bg-white cursor-pointer"
+            >
+              <option value="all">All Broadcast Platforms</option>
+              <option value="tv_national">TV Package (National)</option>
+              <option value="tv_regional">TV Package (Regional)</option>
+              <option value="radio_national">Radio Clip (National)</option>
+              <option value="radio_vernacular">Radio Clip (Vernacular)</option>
+              <option value="website">Website Article</option>
+              <option value="social">Social Media Post</option>
+            </select>
+          </div>
+
+          {/* Verification Status */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Proof & Verification
+            </label>
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="w-full border rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy bg-gray-50 focus:bg-white cursor-pointer"
+            >
+              <option value="all">All Proof Statuses</option>
+              <option value="verified">Verified Proof Only</option>
+              <option value="pending_proof">Pending Broadcast Proof</option>
+              <option value="approved">Approved Filings Only</option>
+            </select>
+          </div>
+
+          {/* Search Box */}
+          <div className={!isCorrespondent ? "sm:col-span-2 md:col-span-2" : "sm:col-span-2 md:col-span-4"}>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Search Story / Headline
+            </label>
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search headlines, keywords, story ref..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full border rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy bg-gray-50 focus:bg-white"
+              />
+            </div>
+          </div>
+
+          {/* Correspondent Scope (If not single correspondent) */}
+          {!isCorrespondent && (
+            <div className="sm:col-span-2 md:col-span-2">
+              <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                Filter by Correspondent
+              </label>
+              <select
+                value={selectedCorrespondentId}
+                onChange={(e) => setSelectedCorrespondentId(e.target.value)}
+                className="w-full border rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy bg-gray-50 focus:bg-white cursor-pointer"
+              >
+                <option value="all">All Correspondents (All Bureaus)</option>
+                {correspondents.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} — {c.county || "Field Bureau"} ({c.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
       {actionMessage && (
-        <div className="p-4 bg-brand-teal text-white rounded-xl text-xs font-semibold flex items-center gap-2">
+        <div className="p-4 bg-brand-teal text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
           <span>{actionMessage}</span>
         </div>
       )}
 
-      {/* Itemized Breakdown Table with Alternating Off-White #F7F7F7 Rows */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-brand-navy text-white px-6 py-4 flex items-center justify-between border-b-2 border-brand-gold">
-          <h2 className="font-bold text-lg">Itemized Stories Breakdown & Platform Rates</h2>
-          <span className="text-xs text-brand-gold font-semibold">Active Rate Engine Applied</span>
-        </div>
+      {/* Stories List Feed */}
+      <div className="space-y-4">
+        {filteredStories.length === 0 ? (
+          <div className="bg-white p-12 rounded-2xl border border-gray-200 text-center text-gray-500 shadow-sm space-y-2">
+            <FileText className="w-12 h-12 text-gray-300 mx-auto" />
+            <h3 className="font-bold text-slate-800 text-base">No Published Stories Found</h3>
+            <p className="text-xs text-gray-500 max-w-md mx-auto">
+              No filed stories match your current filters. Try changing the platform, verification status, or search terms.
+            </p>
+          </div>
+        ) : (
+          filteredStories.map((story, index) => {
+            const hasWebLink = !!story.proofOfUse?.url;
+            const hasYoutubeLink = !!story.proofOfUse?.youtubeUrl;
+            const hasAudioLink = !!story.proofOfUse?.audioClipUrl;
+            const hasWeTransfer = !!story.wetransferUrl;
+            const hasMediaFiles = story.mediaFiles && story.mediaFiles.length > 0;
+            const hasAnyLink = hasWebLink || hasYoutubeLink || hasAudioLink || hasWeTransfer || hasMediaFiles;
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse table-byline">
-            <thead>
-              <tr className="bg-gray-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b">
-                <th className="p-4">Filing Title & ID</th>
-                {user?.role !== "correspondent" && <th className="p-4">Correspondent</th>}
-                <th className="p-4">Published Platforms</th>
-                <th className="p-4">Proof Status</th>
-                <th className="p-4 text-right">Calculated Rate</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y text-xs sm:text-sm">
-              {verifiedSubmissions.length === 0 ? (
-                <tr>
-                  <td colSpan={user?.role !== "correspondent" ? 5 : 4} className="p-8 text-center text-gray-400">
-                    No approved story filings found for this period.
-                  </td>
-                </tr>
-              ) : (
-                verifiedSubmissions.map((sub) => (
-                  <tr key={sub.id} className="hover:bg-blue-50/40 transition">
-                    <td className="p-4">
-                      <div className="font-bold text-brand-navy">{sub.assignmentTitle}</div>
-                      <div className="text-xs text-gray-500 font-mono mt-0.5">{sub.id}</div>
-                    </td>
-                    {user?.role !== "correspondent" && (
-                      <td className="p-4">
-                        <span className="font-bold text-slate-800 block text-xs">{sub.correspondentName}</span>
-                      </td>
-                    )}
-                    <td className="p-4">
-                      <div className="flex flex-wrap gap-1">
-                        {sub.publishedPlatforms && sub.publishedPlatforms.length > 0 ? (
-                          sub.publishedPlatforms.map((p) => (
-                            <span key={p} className="bg-blue-100 text-brand-navy text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200">
-                              {p.replace("_", " ").toUpperCase()}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-gray-400 italic text-xs">None recorded</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {sub.proofConfirmed ? (
-                        <span className="bg-brand-teal text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Verified
-                        </span>
-                      ) : (
-                        <span className="bg-amber-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                          Pending Proof
+            return (
+              <div 
+                key={story.id} 
+                className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition p-6 space-y-4"
+              >
+                {/* Top Bar: Headline, ID, Date, Verification Badge */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-brand-navy bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                        {story.id}
+                      </span>
+                      <span className="text-xs text-gray-500 flex items-center gap-1 font-semibold">
+                        <Clock className="w-3.5 h-3.5 text-gray-400" />
+                        Filed: {new Date(story.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </span>
+                      {!isCorrespondent && (
+                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
+                          Author: {story.correspondentName}
                         </span>
                       )}
-                    </td>
-                    <td className="p-4 text-right font-bold text-brand-gold">
-                      KES {sub.calculatedAmountKES ? sub.calculatedAmountKES.toLocaleString() : 0}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    </div>
 
-      {/* Payment History & Pending Claims (US-14) */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-brand-navy text-white px-6 py-4 flex items-center justify-between border-b-2 border-brand-gold">
-          <h2 className="font-bold text-lg">Logged Payment Claims ({claims.length})</h2>
-          <span className="text-xs text-brand-gold font-semibold">Payment History & Tracking</span>
-        </div>
+                    <h3 className="text-lg font-black text-slate-900 mt-1.5">
+                      {index + 1}. {story.assignmentTitle}
+                    </h3>
+                  </div>
 
-        <div className="divide-y">
-          {claims.map((claim) => (
-            <div key={claim.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold text-brand-navy">{claim.id}</span>
-                  <span className="text-xs font-semibold text-gray-500">&bull; {claim.month}</span>
-                </div>
-                <h4 className="font-bold text-slate-900 mt-1">{claim.correspondentName}</h4>
-                <p className="text-xs text-gray-500">{claim.bankDetails}</p>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <span className="text-xs font-bold text-brand-gold block">KES {claim.totalAmountKES.toLocaleString()}</span>
-                  <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
-                    claim.status === "paid" ? "bg-brand-teal text-white" : "bg-amber-500 text-white"
-                  }`}>
-                    {claim.status}
-                  </span>
+                  <div className="shrink-0">
+                    {story.proofConfirmed ? (
+                      <span className="bg-brand-teal text-white text-xs font-bold px-3 py-1 rounded-full inline-flex items-center gap-1.5 shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Proof Verified
+                      </span>
+                    ) : (
+                      <span className="bg-amber-500 text-white text-xs font-bold px-3 py-1 rounded-full inline-flex items-center gap-1.5 shadow-xs">
+                        <AlertCircle className="w-3.5 h-3.5" /> Pending Airing Proof
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {claim.status === "pending" && (
-                  <button
-                    onClick={() => handleMarkAsPaid(claim.id)}
-                    className="bg-brand-teal hover:bg-emerald-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow"
-                  >
-                    Mark as Paid
-                  </button>
+                {/* Story Excerpt / Brief Content */}
+                {story.textContent && (
+                  <p className="text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100 line-clamp-3 leading-relaxed">
+                    {story.textContent}
+                  </p>
                 )}
+
+                {/* WHERE IT WAS PUBLISHED (Platforms Aired) */}
+                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-brand-navy flex items-center gap-1.5">
+                    <Tv className="w-3.5 h-3.5 text-brand-gold" />
+                    <span>Where It Was Published (Aired Platforms)</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {story.publishedPlatforms && story.publishedPlatforms.length > 0 ? (
+                      story.publishedPlatforms.map((platform) => {
+                        let icon = <Tv className="w-3.5 h-3.5" />;
+                        let colorClass = "bg-blue-600 text-white";
+
+                        if (platform === "tv_national") {
+                          icon = <Tv className="w-3.5 h-3.5 text-white" />;
+                          colorClass = "bg-blue-700 text-white";
+                        } else if (platform === "tv_regional") {
+                          icon = <Tv className="w-3.5 h-3.5 text-white" />;
+                          colorClass = "bg-indigo-700 text-white";
+                        } else if (platform === "radio_national") {
+                          icon = <Radio className="w-3.5 h-3.5 text-white" />;
+                          colorClass = "bg-purple-700 text-white";
+                        } else if (platform === "radio_vernacular") {
+                          icon = <Radio className="w-3.5 h-3.5 text-white" />;
+                          colorClass = "bg-violet-700 text-white";
+                        } else if (platform === "website") {
+                          icon = <Globe className="w-3.5 h-3.5 text-white" />;
+                          colorClass = "bg-teal-700 text-white";
+                        } else if (platform === "social") {
+                          icon = <Share2 className="w-3.5 h-3.5 text-white" />;
+                          colorClass = "bg-pink-700 text-white";
+                        }
+
+                        return (
+                          <span 
+                            key={platform} 
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold shadow-xs ${colorClass}`}
+                          >
+                            {icon}
+                            <span>{platform.replace("_", " ").toUpperCase()}</span>
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">No broadcast platforms recorded yet</span>
+                    )}
+                  </div>
+
+                  {/* Airing Bulletin Notes */}
+                  {story.proofOfUse?.notes && (
+                    <div className="pt-2 text-xs text-slate-700 font-medium">
+                      <span className="font-bold text-slate-900">Broadcast / Airing Bulletin: </span>
+                      <span className="italic">"{story.proofOfUse.notes}"</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* DIRECT LINKS TO STORIES */}
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2.5">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <ExternalLink className="w-3.5 h-3.5 text-brand-gold" />
+                      <span>Direct Links to Story & Broadcast Proof</span>
+                    </div>
+                    {hasAnyLink && (
+                      <span className="text-[10px] text-brand-teal font-bold bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                        Interactive Links Available
+                      </span>
+                    )}
+                  </div>
+
+                  {hasAnyLink ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {/* Web Article Link */}
+                      {hasWebLink && (
+                        <a
+                          href={story.proofOfUse!.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-white hover:bg-blue-50 text-brand-navy border border-blue-300 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition"
+                          title="Open KBC Online Article"
+                        >
+                          <Globe className="w-3.5 h-3.5 text-teal-600" />
+                          <span>KBC Web Article</span>
+                          <ExternalLink className="w-3 h-3 text-gray-400" />
+                        </a>
+                      )}
+
+                      {/* YouTube TV Broadcast Link */}
+                      {hasYoutubeLink && (
+                        <a
+                          href={story.proofOfUse!.youtubeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition"
+                          title="Watch Broadcast on YouTube / KBC Channel 1"
+                        >
+                          <Tv className="w-3.5 h-3.5 text-rose-600" />
+                          <span>YouTube TV Clip</span>
+                          <ExternalLink className="w-3 h-3 text-rose-400" />
+                        </a>
+                      )}
+
+                      {/* Radio Audio Stream Link */}
+                      {hasAudioLink && (
+                        <a
+                          href={story.proofOfUse!.audioClipUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-white hover:bg-purple-50 text-purple-800 border border-purple-300 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition"
+                          title="Listen to Radio Broadcast Audio"
+                        >
+                          <Radio className="w-3.5 h-3.5 text-purple-600" />
+                          <span>Radio Audio Stream</span>
+                          <ExternalLink className="w-3 h-3 text-purple-400" />
+                        </a>
+                      )}
+
+                      {/* WeTransfer / Cloud Media Link */}
+                      {hasWeTransfer && (
+                        <a
+                          href={story.wetransferUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-white hover:bg-sky-50 text-sky-900 border border-sky-300 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition"
+                          title="Download Raw Media via WeTransfer"
+                        >
+                          <CloudDownload className="w-3.5 h-3.5 text-sky-600" />
+                          <span>WeTransfer Media Link</span>
+                          <ExternalLink className="w-3 h-3 text-sky-400" />
+                        </a>
+                      )}
+
+                      {/* Attached Files Badge */}
+                      {hasMediaFiles && (
+                        <div className="bg-white text-slate-700 border border-gray-300 font-semibold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-xs">
+                          <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                          <span>{story.mediaFiles.length} Attached File(s)</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-400 italic py-1">
+                      No external publication links or web URLs recorded for this story filing yet.
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import {
 import { doc, getDocs, collection, setDoc, deleteDoc } from "firebase/firestore";
 import { db, createSecondaryUser } from "../../lib/firebase";
 import { sendUserWelcomeAndActivationEmail, resendAccountActivation } from "../../lib/emailService";
-import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
+import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS, formatBankDetails, parseBankDetails, POPULAR_KENYAN_BANKS } from "../../lib/dataStore";
 import { usersList } from "../../data/mockData";
 import type { Role, SystemUser, Correspondent } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -72,6 +72,9 @@ export default function UserManagement() {
     department: string;
     phone: string;
     idNumber: string;
+    bankName: string;
+    branch: string;
+    accountNumber: string;
     bankDetails: string;
     specialisation: string;
     county: string;
@@ -83,6 +86,9 @@ export default function UserManagement() {
     department: "Central News Desk",
     phone: "",
     idNumber: "",
+    bankName: "",
+    branch: "",
+    accountNumber: "",
     bankDetails: "",
     specialisation: "",
     county: "Nairobi",
@@ -122,6 +128,7 @@ export default function UserManagement() {
       storedCorrs.forEach((c) => {
         const key = c.email.toLowerCase();
         if (!deletedEmails.has(key)) {
+          const parsed = parseBankDetails(c.bankDetails);
           userMap.set(key, {
             id: c.id,
             uid: c.id,
@@ -131,6 +138,9 @@ export default function UserManagement() {
             department: c.county ? `${c.county} County Bureau` : "Regional Bureau",
             phone: c.phone,
             idNumber: c.idNumber,
+            bankName: c.bankName || parsed.bankName,
+            branch: c.branch || parsed.branch,
+            accountNumber: c.accountNumber || parsed.accountNumber,
             bankDetails: c.bankDetails,
             specialisation: c.specialisation,
             county: c.county,
@@ -157,6 +167,7 @@ export default function UserManagement() {
           const data = docSnap.data();
           const email = (data.email || "").toLowerCase();
           if (email && !deletedEmails.has(email)) {
+            const parsed = parseBankDetails(data.bankDetails || "");
             userMap.set(email, {
               id: docSnap.id,
               uid: data.uid || docSnap.id,
@@ -166,6 +177,9 @@ export default function UserManagement() {
               department: data.department || (data.county ? `${data.county} County Bureau` : "General"),
               phone: data.phone || "",
               idNumber: data.idNumber || "",
+              bankName: data.bankName || parsed.bankName,
+              branch: data.branch || parsed.branch,
+              accountNumber: data.accountNumber || parsed.accountNumber,
               bankDetails: data.bankDetails || "",
               specialisation: data.specialisation || "",
               county: data.county || "",
@@ -212,6 +226,9 @@ export default function UserManagement() {
       department: presetRole === "super_admin" ? "Digital Directorate" : "Central News Desk",
       phone: "",
       idNumber: "",
+      bankName: "",
+      branch: "",
+      accountNumber: "",
       bankDetails: "",
       specialisation: "",
       county: "Nairobi",
@@ -237,6 +254,13 @@ export default function UserManagement() {
         console.warn("Secondary auth user creation notice (saving to Firestore):", fbErr);
       }
 
+      const formattedBank = formatBankDetails({
+        bankName: form.bankName,
+        branch: form.branch,
+        accountNumber: form.accountNumber,
+        bankDetails: form.bankDetails,
+      });
+
       // 2. Write to Firestore `users` collection
       const userPayload: any = {
         uid: createdUid,
@@ -251,9 +275,12 @@ export default function UserManagement() {
       };
 
       if (form.role === "correspondent") {
-        userPayload.idNumber = form.idNumber;
-        userPayload.bankDetails = form.bankDetails;
-        userPayload.specialisation = form.specialisation;
+        userPayload.idNumber = form.idNumber.trim();
+        userPayload.bankName = form.bankName.trim();
+        userPayload.branch = form.branch.trim();
+        userPayload.accountNumber = form.accountNumber.trim();
+        userPayload.bankDetails = formattedBank;
+        userPayload.specialisation = form.specialisation.trim();
         userPayload.county = form.county;
       }
 
@@ -274,7 +301,10 @@ export default function UserManagement() {
         department: form.department.trim(),
         phone: form.phone.trim(),
         idNumber: form.idNumber.trim(),
-        bankDetails: form.bankDetails.trim(),
+        bankName: form.bankName.trim(),
+        branch: form.branch.trim(),
+        accountNumber: form.accountNumber.trim(),
+        bankDetails: formattedBank,
         specialisation: form.specialisation.trim(),
         county: form.county,
         registeredAt: new Date().toISOString(),
@@ -295,7 +325,10 @@ export default function UserManagement() {
           email: emailTrimmed,
           phone: form.phone.trim(),
           idNumber: form.idNumber.trim(),
-          bankDetails: form.bankDetails.trim(),
+          bankName: form.bankName.trim(),
+          branch: form.branch.trim(),
+          accountNumber: form.accountNumber.trim(),
+          bankDetails: formattedBank,
           specialisation: form.specialisation.trim(),
           county: form.county || "Nairobi",
           registeredAt: new Date().toISOString(),
@@ -347,6 +380,7 @@ export default function UserManagement() {
   // Open Edit Modal
   const handleEditClick = (u: SystemUser) => {
     setEditingUser(u);
+    const parsed = parseBankDetails(u.bankDetails);
     setForm({
       name: u.name,
       email: u.email,
@@ -355,6 +389,9 @@ export default function UserManagement() {
       department: u.department || "",
       phone: u.phone || "",
       idNumber: u.idNumber || "",
+      bankName: u.bankName || parsed.bankName || "",
+      branch: u.branch || parsed.branch || "",
+      accountNumber: u.accountNumber || parsed.accountNumber || "",
       bankDetails: u.bankDetails || "",
       specialisation: u.specialisation || "",
       county: u.county || "Nairobi",
@@ -373,6 +410,13 @@ export default function UserManagement() {
       const emailLower = editingUser.email.toLowerCase();
       const targetDocId = editingUser.uid || editingUser.id || `usr-${emailLower}`;
 
+      const formattedBank = formatBankDetails({
+        bankName: form.bankName,
+        branch: form.branch,
+        accountNumber: form.accountNumber,
+        bankDetails: form.bankDetails,
+      });
+
       const updateData: any = {
         uid: targetDocId,
         name: form.name.trim(),
@@ -385,7 +429,10 @@ export default function UserManagement() {
 
       if (form.role === "correspondent") {
         updateData.idNumber = form.idNumber.trim();
-        updateData.bankDetails = form.bankDetails.trim();
+        updateData.bankName = form.bankName.trim();
+        updateData.branch = form.branch.trim();
+        updateData.accountNumber = form.accountNumber.trim();
+        updateData.bankDetails = formattedBank;
         updateData.specialisation = form.specialisation.trim();
         updateData.county = form.county;
       }
@@ -406,7 +453,10 @@ export default function UserManagement() {
         department: form.department.trim(),
         phone: form.phone.trim(),
         idNumber: form.idNumber.trim(),
-        bankDetails: form.bankDetails.trim(),
+        bankName: form.bankName.trim(),
+        branch: form.branch.trim(),
+        accountNumber: form.accountNumber.trim(),
+        bankDetails: formattedBank,
         specialisation: form.specialisation.trim(),
         county: form.county,
       };
@@ -427,7 +477,10 @@ export default function UserManagement() {
           email: emailLower,
           phone: form.phone.trim(),
           idNumber: form.idNumber.trim(),
-          bankDetails: form.bankDetails.trim(),
+          bankName: form.bankName.trim(),
+          branch: form.branch.trim(),
+          accountNumber: form.accountNumber.trim(),
+          bankDetails: formattedBank,
           specialisation: form.specialisation.trim(),
           county: form.county || "Nairobi",
           registeredAt: existingCorr?.registeredAt || new Date().toISOString(),
@@ -941,16 +994,55 @@ export default function UserManagement() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1">Bank / Payment Details</label>
-                    <input
-                      type="text"
-                      name="bankDetails"
-                      value={form.bankDetails}
-                      onChange={handleInputChange}
-                      placeholder="e.g. KCB Bank - A/C 1184920491 (Nakuru Branch)"
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white"
-                    />
+                  <div className="p-3 bg-white/80 rounded-lg border border-emerald-200 space-y-2.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-950 uppercase">
+                      <Building2 className="w-3.5 h-3.5 text-brand-gold" />
+                      <span>Bank & Payment Details</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 mb-1">Bank Name</label>
+                      <input
+                        list="admin-kenya-banks"
+                        type="text"
+                        name="bankName"
+                        value={form.bankName}
+                        onChange={handleInputChange}
+                        placeholder="e.g. KCB Bank, Equity Bank, Co-operative Bank"
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white"
+                      />
+                      <datalist id="admin-kenya-banks">
+                        {POPULAR_KENYAN_BANKS.map((b) => (
+                          <option key={b} value={b} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Branch Name</label>
+                        <input
+                          type="text"
+                          name="branch"
+                          value={form.branch}
+                          onChange={handleInputChange}
+                          placeholder="e.g. Nakuru Branch"
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          name="accountNumber"
+                          value={form.accountNumber}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 1184920491"
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white font-mono"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div>
@@ -1090,15 +1182,55 @@ export default function UserManagement() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1">Bank Details</label>
-                    <input
-                      type="text"
-                      name="bankDetails"
-                      value={form.bankDetails}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white"
-                    />
+                  <div className="p-3 bg-white/80 rounded-lg border border-emerald-200 space-y-2.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-950 uppercase">
+                      <Building2 className="w-3.5 h-3.5 text-brand-gold" />
+                      <span>Bank & Payment Details</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 mb-1">Bank Name</label>
+                      <input
+                        list="admin-edit-kenya-banks"
+                        type="text"
+                        name="bankName"
+                        value={form.bankName}
+                        onChange={handleInputChange}
+                        placeholder="e.g. KCB Bank, Equity Bank, Co-operative Bank"
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white"
+                      />
+                      <datalist id="admin-edit-kenya-banks">
+                        {POPULAR_KENYAN_BANKS.map((b) => (
+                          <option key={b} value={b} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Branch Name</label>
+                        <input
+                          type="text"
+                          name="branch"
+                          value={form.branch}
+                          onChange={handleInputChange}
+                          placeholder="e.g. Nakuru Branch"
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          name="accountNumber"
+                          value={form.accountNumber}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 1184920491"
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 bg-white font-mono"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div>

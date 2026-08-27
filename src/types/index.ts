@@ -37,6 +37,9 @@ export interface SystemUser {
   department?: string;
   phone?: string;
   idNumber?: string;
+  bankName?: string;
+  branch?: string;
+  accountNumber?: string;
   bankDetails?: string;
   specialisation?: string;
   county?: string;
@@ -51,6 +54,9 @@ export interface Correspondent {
   email: string;
   phone: string;
   idNumber: string;
+  bankName?: string;
+  branch?: string;
+  accountNumber?: string;
   bankDetails: string;
   specialisation: string;
   county?: string;
@@ -96,6 +102,7 @@ export interface Submission {
   correspondentName: string;
   textContent?: string;
   mediaFiles: MediaFile[];
+  wetransferUrl?: string;
   submittedAt: string;
   status: SubmissionStatus;
   editorialFeedback?: string;
@@ -129,6 +136,9 @@ export interface PaymentClaim {
   correspondentName: string;
   correspondentEmail: string;
   correspondentPhone: string;
+  bankName?: string;
+  branch?: string;
+  accountNumber?: string;
   bankDetails: string;
   month: string;
   submissionIds: string[];

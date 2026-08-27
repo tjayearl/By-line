@@ -4,7 +4,13 @@ import {
   Settings, 
   Users,
   FileText,
-  ClipboardCheck
+  ClipboardCheck,
+  UploadCloud,
+  Clock,
+  DollarSign,
+  UserPlus,
+  FilePlus,
+  LayoutDashboard
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
@@ -35,6 +41,8 @@ export default function Navbar() {
 
   const isSuperAdmin = user?.role === "super_admin";
   const isManagingEditor = user?.role === "managing_editor" || isSuperAdmin;
+  const isEditor = user?.role === "editor";
+  const isCorrespondent = user?.role === "correspondent";
 
   return (
     <header className="bg-brand-navy text-white shadow-md border-b-4 border-brand-gold sticky top-0 z-50">
@@ -84,9 +92,92 @@ export default function Navbar() {
       </div>
 
       {/* Sub Navigation Bar */}
-      {user && (isManagingEditor || isSuperAdmin) && (
+      {user && (
         <div className="bg-blue-950/90 border-t border-blue-900/80 px-4 sm:px-6 py-1.5 overflow-x-auto">
-          <div className="max-w-7xl mx-auto flex items-center gap-1 text-xs whitespace-nowrap">
+          <div className="max-w-7xl mx-auto flex items-center gap-1.5 text-xs whitespace-nowrap">
+            <Link
+              to="/"
+              className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                location.pathname === "/"
+                  ? "bg-brand-gold text-slate-900 shadow-xs"
+                  : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Dashboard</span>
+            </Link>
+
+            {/* Correspondent Specific Links */}
+            {isCorrespondent && (
+              <>
+                <Link
+                  to="/assignments"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/assignments"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>My Assignments</span>
+                </Link>
+
+                <Link
+                  to="/submit"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/submit"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>File Story</span>
+                </Link>
+              </>
+            )}
+
+            {/* Desk Editor Specific Links */}
+            {isEditor && (
+              <>
+                <Link
+                  to="/editor/review"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/review"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>Review Queue</span>
+                </Link>
+
+                <Link
+                  to="/editor/assign"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/assign"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <FilePlus className="w-3.5 h-3.5" />
+                  <span>New Assignment</span>
+                </Link>
+
+                <Link
+                  to="/editor/register"
+                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                    location.pathname === "/editor/register"
+                      ? "bg-brand-gold text-slate-900 shadow-xs"
+                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+                  }`}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Register Correspondent</span>
+                </Link>
+              </>
+            )}
+
+            {/* Managing Editor & Super Admin Links */}
             {isManagingEditor && (
               <>
                 <Link
@@ -102,18 +193,6 @@ export default function Navbar() {
                 </Link>
 
                 <Link
-                  to="/report"
-                  className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
-                    location.pathname === "/report"
-                      ? "bg-brand-gold text-slate-900 shadow-xs"
-                      : "text-blue-200 hover:text-white hover:bg-blue-900/50"
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Payment Summaries</span>
-                </Link>
-
-                <Link
                   to="/editor/review"
                   className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
                     location.pathname === "/editor/review"
@@ -122,11 +201,38 @@ export default function Navbar() {
                   }`}
                 >
                   <ClipboardCheck className="w-3.5 h-3.5" />
-                  <span>Review & Airing Confirmation</span>
+                  <span>Review & Airing</span>
                 </Link>
               </>
             )}
 
+            {/* SEPARATE STORIES REPORT LINK (Where published & links) */}
+            <Link
+              to="/stories-report"
+              className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                location.pathname === "/stories-report" || location.pathname === "/report"
+                  ? "bg-brand-gold text-slate-900 shadow-xs"
+                  : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Stories Report (Where Published & Links)</span>
+            </Link>
+
+            {/* SEPARATE PAYMENT REPORT LINK (Duration & claims) */}
+            <Link
+              to="/payment-report"
+              className={`px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition ${
+                location.pathname === "/payment-report"
+                  ? "bg-brand-gold text-slate-900 shadow-xs"
+                  : "text-blue-200 hover:text-white hover:bg-blue-900/50"
+              }`}
+            >
+              <DollarSign className="w-3.5 h-3.5" />
+              <span>Payment Report (Duration & Claims)</span>
+            </Link>
+
+            {/* Super Admin User Roles */}
             {isSuperAdmin && (
               <Link
                 to="/admin/users"

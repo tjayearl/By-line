@@ -47,6 +47,80 @@ export const DEFAULT_RATES: RateCardEntry[] = [
   },
 ];
 
+export const POPULAR_KENYAN_BANKS = [
+  "KCB Bank",
+  "Equity Bank",
+  "Co-operative Bank",
+  "NCBA Bank",
+  "Absa Bank Kenya",
+  "Standard Chartered Bank",
+  "Stanbic Bank Kenya",
+  "Diamond Trust Bank (DTB)",
+  "Family Bank",
+  "I&M Bank",
+  "National Bank of Kenya (NBK)",
+  "Kingdom Bank",
+  "Postbank",
+  "Prime Bank",
+  "Credit Bank",
+  "Sidian Bank",
+  "Gulf African Bank",
+  "Victoria Commercial Bank",
+  "M-Pesa / Paybill",
+];
+
+export function formatBankDetails(item?: {
+  bankName?: string;
+  branch?: string;
+  accountNumber?: string;
+  bankDetails?: string;
+}): string {
+  if (!item) return "";
+  const bank = item.bankName?.trim() || "";
+  const branch = item.branch?.trim() || "";
+  const acc = item.accountNumber?.trim() || "";
+
+  if (bank || branch || acc) {
+    let result = bank;
+    if (acc) result = result ? `${result} - A/C ${acc}` : `A/C ${acc}`;
+    if (branch) result = result ? `${result} (${branch})` : `(${branch})`;
+    return result;
+  }
+  return item.bankDetails || "";
+}
+
+export function parseBankDetails(bankDetails?: string): { bankName: string; branch: string; accountNumber: string } {
+  if (!bankDetails) return { bankName: "", branch: "", accountNumber: "" };
+  // Pattern 1: "KCB Bank - A/C 1184920491 (Nakuru Branch)"
+  const m1 = bankDetails.match(/^(.*?)\s*-\s*A\/C\s*([^(]+?)(?:\s*\((.*?)\))?$/i);
+  if (m1) {
+    return {
+      bankName: m1[1]?.trim() || "",
+      accountNumber: m1[2]?.trim() || "",
+      branch: m1[3]?.trim() || "",
+    };
+  }
+  // Pattern 2: "Equity Bank (Kisumu Branch) A/C 0192840291"
+  const m2 = bankDetails.match(/^(.*?)\s*\((.*?)\)\s*A\/C\s*(.*)$/i);
+  if (m2) {
+    return {
+      bankName: m2[1]?.trim() || "",
+      branch: m2[2]?.trim() || "",
+      accountNumber: m2[3]?.trim() || "",
+    };
+  }
+  // Pattern 3: "KCB Bank - 1184920491 (Nakuru Branch)"
+  const m3 = bankDetails.match(/^(.*?)\s*-\s*([0-9A-Za-z]+)\s*\((.*?)\)$/);
+  if (m3) {
+    return {
+      bankName: m3[1]?.trim() || "",
+      accountNumber: m3[2]?.trim() || "",
+      branch: m3[3]?.trim() || "",
+    };
+  }
+  return { bankName: bankDetails, branch: "", accountNumber: "" };
+}
+
 export const INITIAL_CORRESPONDENTS: Correspondent[] = [
   {
     id: "corr-101",
@@ -54,6 +128,9 @@ export const INITIAL_CORRESPONDENTS: Correspondent[] = [
     email: "jane.wambui@kbc.co.ke",
     phone: "+254 712 345 678",
     idNumber: "28491029",
+    bankName: "KCB Bank",
+    branch: "Nakuru Branch",
+    accountNumber: "1184920491",
     bankDetails: "KCB Bank - A/C 1184920491 (Nakuru Branch)",
     specialisation: "Nakuru County - Agriculture & Devolution",
     county: "Nakuru",
@@ -66,6 +143,9 @@ export const INITIAL_CORRESPONDENTS: Correspondent[] = [
     email: "omondi.otieno@kbc.co.ke",
     phone: "+254 723 987 654",
     idNumber: "31049281",
+    bankName: "Equity Bank",
+    branch: "Kisumu Branch",
+    accountNumber: "0192840291",
     bankDetails: "Equity Bank - A/C 0192840291 (Kisumu Branch)",
     specialisation: "Kisumu County - Marine Economy & Health",
     county: "Kisumu",
@@ -78,6 +158,9 @@ export const INITIAL_CORRESPONDENTS: Correspondent[] = [
     email: "amina.hassan@kbc.co.ke",
     phone: "+254 734 555 123",
     idNumber: "29501938",
+    bankName: "Co-operative Bank",
+    branch: "Mombasa Branch",
+    accountNumber: "0112948102",
     bankDetails: "Co-operative Bank - A/C 0112948102 (Mombasa Branch)",
     specialisation: "Mombasa County - Port Infrastructure & Tourism",
     county: "Mombasa",

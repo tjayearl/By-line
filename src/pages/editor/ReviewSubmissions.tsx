@@ -18,7 +18,8 @@ import {
   User as UserIcon,
   Download,
   FileText,
-  Clock
+  Clock,
+  UploadCloud
 } from "lucide-react";
 import { doc, getDocs, collection, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
@@ -27,7 +28,7 @@ import { openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/media
 import {
   loadStoredData, saveStoredData, INITIAL_SUBMISSIONS, DEFAULT_RATES,
   INITIAL_CORRESPONDENTS, INITIAL_ASSIGNMENTS,
-  calculatePaymentForPlatforms
+  calculatePaymentForPlatforms, parseBankDetails
 } from "../../lib/dataStore";
 import { sendEditorialReviewDecisionEmail } from "../../lib/emailService";
 import type { Assignment, Correspondent, MediaFile, Platform, RateCardEntry, Submission } from "../../types";
@@ -113,12 +114,16 @@ export default function ReviewSubmissions() {
         uSnap.forEach((d) => {
           const u = d.data() as any;
           if (u.role === "correspondent") {
+            const parsed = parseBankDetails(u.bankDetails || "");
             corrMap.set(d.id, {
               id: d.id,
               name: u.name || u.email,
               email: u.email,
               phone: u.phone || "",
               idNumber: u.idNumber || "",
+              bankName: u.bankName || parsed.bankName,
+              branch: u.branch || parsed.branch,
+              accountNumber: u.accountNumber || parsed.accountNumber,
               bankDetails: u.bankDetails || "",
               specialisation: u.specialisation || "News",
               county: u.county || "Nairobi",
@@ -469,6 +474,19 @@ export default function ReviewSubmissions() {
                       )}
                     </div>
                     <h4 className="font-bold text-slate-900 text-xs line-clamp-2 mt-0.5">{sub.assignmentTitle}</h4>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {sub.wetransferUrl && (
+                        <span className="bg-sky-100 text-sky-800 text-[10px] font-bold px-1.5 py-0.2 rounded inline-flex items-center gap-1 border border-sky-200">
+                          <UploadCloud className="w-2.5 h-2.5 text-sky-600" />
+                          <span>WeTransfer</span>
+                        </span>
+                      )}
+                      {sub.mediaFiles && sub.mediaFiles.length > 0 && (
+                        <span className="bg-gray-100 text-gray-700 text-[10px] font-semibold px-1.5 py-0.2 rounded">
+                          {sub.mediaFiles.length} file(s)
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-gray-600 flex items-center justify-between mt-1">
                       <span className="flex items-center gap-1">
                         <UserIcon className="w-3 h-3 text-gray-400" />
@@ -526,73 +544,117 @@ export default function ReviewSubmissions() {
                 </div>
               </div>
 
-              {/* Media Attachments */}
-              {selectedSub.mediaFiles && selectedSub.mediaFiles.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
+              {/* Media Attachments & WeTransfer Cloud Links */}
+              {((selectedSub.mediaFiles && selectedSub.mediaFiles.length > 0) || selectedSub.wetransferUrl) && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold uppercase text-slate-700">
-                      Attached Field Media ({selectedSub.mediaFiles.length})
+                      Attached Field Media ({selectedSub.mediaFiles ? selectedSub.mediaFiles.length : 0})
+                      {selectedSub.wetransferUrl && " + WeTransfer Cloud Transfer"}
                     </h3>
                     <span className="text-[11px] text-brand-teal font-semibold">
-                      Interactive Preview Enabled
+                      Interactive Preview & Download Enabled
                     </span>
                   </div>
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {selectedSub.mediaFiles.map((m, i) => {
-                      const isPdf = isPdfFile(m);
-                      return (
-                        <div 
-                          key={i} 
-                          className="p-3 bg-gray-50 hover:bg-blue-50/50 rounded-xl border border-gray-200 hover:border-brand-navy/30 flex flex-col justify-between text-xs gap-3 transition shadow-xs"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="p-2 rounded-xl bg-white border border-gray-200 shrink-0 text-brand-navy shadow-xs">
-                              {isPdf ? (
-                                <FileText className="w-4 h-4 text-rose-600" />
-                              ) : m.type === "audio" ? (
-                                <Music className="w-4 h-4 text-blue-600" />
-                              ) : m.type === "video" ? (
-                                <Video className="w-4 h-4 text-purple-600" />
-                              ) : m.type === "image" ? (
-                                <ImageIcon className="w-4 h-4 text-emerald-600" />
-                              ) : (
-                                <Paperclip className="w-4 h-4 text-amber-600" />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="font-bold text-slate-900 truncate text-xs" title={m.name}>
-                                {m.name}
-                              </p>
-                              <p className="text-[10px] text-gray-500 uppercase font-mono mt-0.5">
-                                {isPdf ? "PDF Document" : m.type} &bull; {m.size || "File"}
-                              </p>
-                            </div>
-                          </div>
 
-                          <div className="flex items-center justify-between pt-2 border-t border-gray-200 gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => openMediaSafely(m)}
-                              className="flex-1 bg-brand-navy hover:bg-blue-900 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
-                              title={isPdf ? "View PDF in new tab" : "Open file in new tab"}
-                            >
-                              <ExternalLink className="w-3.5 h-3.5 text-brand-gold" />
-                              <span>{isPdf ? "View PDF" : "Open in New Tab"}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => downloadMediaSafely(m)}
-                              className="bg-white hover:bg-gray-100 text-slate-700 border border-gray-200 p-1.5 rounded-lg transition cursor-pointer"
-                              title="Download copy to device"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                  {/* WeTransfer Link Banner */}
+                  {selectedSub.wetransferUrl && (
+                    <div className="p-4 bg-sky-50 rounded-2xl border-2 border-sky-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-3 bg-sky-600 text-white rounded-xl shadow-xs shrink-0">
+                          <UploadCloud className="w-6 h-6" />
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-sky-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                              WeTransfer / Large Files Link
+                            </span>
+                            <span className="text-xs font-bold text-sky-950">Raw Broadcast Media</span>
+                          </div>
+                          <a
+                            href={selectedSub.wetransferUrl.startsWith("http") ? selectedSub.wetransferUrl : `https://${selectedSub.wetransferUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-sky-800 hover:text-sky-950 font-mono underline block truncate mt-1"
+                            title={selectedSub.wetransferUrl}
+                          >
+                            {selectedSub.wetransferUrl}
+                          </a>
+                        </div>
+                      </div>
+
+                      <a
+                        href={selectedSub.wetransferUrl.startsWith("http") ? selectedSub.wetransferUrl : `https://${selectedSub.wetransferUrl}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl inline-flex items-center justify-center gap-2 shrink-0 shadow transition cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 text-brand-gold" />
+                        <span>Download from WeTransfer</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-sky-200" />
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Local Media Files Grid */}
+                  {selectedSub.mediaFiles && selectedSub.mediaFiles.length > 0 && (
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {selectedSub.mediaFiles.map((m, i) => {
+                        const isPdf = isPdfFile(m);
+                        return (
+                          <div 
+                            key={i} 
+                            className="p-3 bg-gray-50 hover:bg-blue-50/50 rounded-xl border border-gray-200 hover:border-brand-navy/30 flex flex-col justify-between text-xs gap-3 transition shadow-xs"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="p-2 rounded-xl bg-white border border-gray-200 shrink-0 text-brand-navy shadow-xs">
+                                {isPdf ? (
+                                  <FileText className="w-4 h-4 text-rose-600" />
+                                ) : m.type === "audio" ? (
+                                  <Music className="w-4 h-4 text-blue-600" />
+                                ) : m.type === "video" ? (
+                                  <Video className="w-4 h-4 text-purple-600" />
+                                ) : m.type === "image" ? (
+                                  <ImageIcon className="w-4 h-4 text-emerald-600" />
+                                ) : (
+                                  <Paperclip className="w-4 h-4 text-amber-600" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-slate-900 truncate text-xs" title={m.name}>
+                                  {m.name}
+                                </p>
+                                <p className="text-[10px] text-gray-500 uppercase font-mono mt-0.5">
+                                  {isPdf ? "PDF Document" : m.type} &bull; {m.size || "File"}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-gray-200 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openMediaSafely(m)}
+                                className="flex-1 bg-brand-navy hover:bg-blue-900 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                                title={isPdf ? "View PDF in new tab" : "Open file in new tab"}
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-brand-gold" />
+                                <span>{isPdf ? "View PDF" : "Open in New Tab"}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => downloadMediaSafely(m)}
+                                className="bg-white hover:bg-gray-100 text-slate-700 border border-gray-200 p-1.5 rounded-lg transition cursor-pointer"
+                                title="Download copy to device"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

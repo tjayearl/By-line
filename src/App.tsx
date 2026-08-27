@@ -10,6 +10,7 @@ import ReviewSubmissions from "./pages/editor/ReviewSubmissions";
 import CorrespondentDashboard from "./pages/correspondent/Dashboard";
 import SubmitFiling from "./pages/correspondent/SubmitFiling";
 import StoriesReport from "./pages/correspondent/StoriesReport";
+import PaymentReport from "./pages/correspondent/PaymentReport";
 import RateCard from "./pages/admin/RateCard";
 import UserManagement from "./pages/admin/UserManagement";
 
@@ -58,7 +59,7 @@ export default function App() {
           <Route
             path="/assignments"
             element={
-              <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin"]}>
+              <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin", "finance"]}>
                 <Layout><CorrespondentDashboard /></Layout>
               </ProtectedRoute>
             }
@@ -74,8 +75,24 @@ export default function App() {
           <Route
             path="/report"
             element={
-              <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin"]}>
+              <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin", "finance"]}>
                 <Layout><StoriesReport /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/stories-report"
+            element={
+              <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin", "finance"]}>
+                <Layout><StoriesReport /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payment-report"
+            element={
+              <ProtectedRoute allowedRoles={["correspondent", "editor", "managing_editor", "super_admin", "finance"]}>
+                <Layout><PaymentReport /></Layout>
               </ProtectedRoute>
             }
           />

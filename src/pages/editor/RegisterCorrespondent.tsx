@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { UserPlus, CheckCircle2, ShieldCheck, Search } from "lucide-react";
+import { UserPlus, CheckCircle2, ShieldCheck, Search, Building2 } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 import { db, createSecondaryUser } from "../../lib/firebase";
 import { sendUserWelcomeAndActivationEmail } from "../../lib/emailService";
-import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS } from "../../lib/dataStore";
+import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS, formatBankDetails, parseBankDetails, POPULAR_KENYAN_BANKS } from "../../lib/dataStore";
 import type { Correspondent } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
@@ -15,7 +15,9 @@ export default function RegisterCorrespondent() {
     email: "",
     phone: "",
     idNumber: "",
-    bankDetails: "",
+    bankName: "",
+    branch: "",
+    accountNumber: "",
     specialisation: "",
     county: "",
     password: "Password123!",
@@ -46,6 +48,11 @@ if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) 
 
     try {
       let createdUid = `corr-${Date.now()}`;
+      const formattedBank = formatBankDetails({
+        bankName: form.bankName,
+        branch: form.branch,
+        accountNumber: form.accountNumber,
+      });
 
       try {
         createdUid = await createSecondaryUser(form.email.trim(), form.password);
@@ -57,7 +64,10 @@ if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) 
           role: "correspondent",
           phone: form.phone,
           idNumber: form.idNumber,
-          bankDetails: form.bankDetails,
+          bankName: form.bankName.trim(),
+          branch: form.branch.trim(),
+          accountNumber: form.accountNumber.trim(),
+          bankDetails: formattedBank,
           specialisation: form.specialisation,
           county: form.county,
           registeredAt: new Date().toISOString(),
@@ -72,7 +82,10 @@ if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) 
         email: form.email.trim(),
         phone: form.phone,
         idNumber: form.idNumber,
-        bankDetails: form.bankDetails,
+        bankName: form.bankName.trim(),
+        branch: form.branch.trim(),
+        accountNumber: form.accountNumber.trim(),
+        bankDetails: formattedBank,
         specialisation: form.specialisation,
         county: form.county || "Nairobi",
         registeredAt: new Date().toISOString(),
@@ -103,7 +116,9 @@ if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) 
         email: "",
         phone: "",
         idNumber: "",
-        bankDetails: "",
+        bankName: "",
+        branch: "",
+        accountNumber: "",
         specialisation: "",
         county: "",
         password: "Password123!",
@@ -211,16 +226,56 @@ if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) 
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Bank Details (For Finance Payout)</label>
-              <input
-                name="bankDetails"
-                placeholder="KCB Bank - A/C 1184920491 (Nakuru Branch)"
-                value={form.bankDetails}
-                onChange={handleChange}
-                className="w-full border rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy"
-                required
-              />
+            {/* Bank Details Group */}
+            <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-100 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-brand-navy uppercase tracking-wider">
+                <Building2 className="w-3.5 h-3.5 text-brand-gold" />
+                <span>Bank & Payment Details (For Finance Payout)</span>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Bank Name</label>
+                <input
+                  list="register-kenya-banks"
+                  name="bankName"
+                  placeholder="e.g. KCB Bank, Equity Bank, Co-operative Bank"
+                  value={form.bankName}
+                  onChange={handleChange}
+                  className="w-full border rounded-lg px-3 py-1.5 text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                  required
+                />
+                <datalist id="register-kenya-banks">
+                  {POPULAR_KENYAN_BANKS.map((b) => (
+                    <option key={b} value={b} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Branch Name</label>
+                  <input
+                    name="branch"
+                    placeholder="e.g. Nakuru Branch"
+                    value={form.branch}
+                    onChange={handleChange}
+                    className="w-full border rounded-lg px-3 py-1.5 text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Account Number</label>
+                  <input
+                    name="accountNumber"
+                    placeholder="e.g. 1184920491"
+                    value={form.accountNumber}
+                    onChange={handleChange}
+                    className="w-full border rounded-lg px-3 py-1.5 text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-navy font-mono"
+                    required
+                  />
+                </div>
+              </div>
             </div>
 
             <div>
@@ -285,36 +340,54 @@ if (!user || !["super_admin", "editor", "managing_editor"].includes(user.role)) 
               <thead>
                 <tr className="bg-gray-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b">
                   <th className="p-3.5">Correspondent</th>
-                  <th className="p-3.5">Contact / Bank</th>
+                  <th className="p-3.5">Contact / Bank Details</th>
                   <th className="p-3.5">Beat & County</th>
                   <th className="p-3.5 text-right">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y text-xs">
-                {filtered.map((corr) => (
-                  <tr key={corr.id} className="hover:bg-blue-50/40 transition">
-                    <td className="p-3.5">
-                      <div className="font-bold text-brand-navy text-sm">{corr.name}</div>
-                      <div className="text-gray-500 font-mono text-[11px]">ID: {corr.idNumber}</div>
-                    </td>
-                    <td className="p-3.5 text-gray-600">
-                      <div>{corr.email}</div>
-                      <div>{corr.phone}</div>
-                      <div className="text-[11px] text-brand-navy font-semibold mt-0.5">{corr.bankDetails}</div>
-                    </td>
-                    <td className="p-3.5">
-                      <span className="bg-brand-teal text-white text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mb-1">
-                        {corr.county || "County Correspondent"}
-                      </span>
-                      <div className="text-slate-800 font-medium">{corr.specialisation}</div>
-                    </td>
-                    <td className="p-3.5 text-right">
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-1 rounded-md border border-emerald-300 inline-flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Active
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((corr) => {
+                  const bankParsed = parseBankDetails(corr.bankDetails);
+                  const displayBank = corr.bankName || bankParsed.bankName || "Bank";
+                  const displayBranch = corr.branch || bankParsed.branch;
+                  const displayAcc = corr.accountNumber || bankParsed.accountNumber;
+
+                  return (
+                    <tr key={corr.id} className="hover:bg-blue-50/40 transition">
+                      <td className="p-3.5">
+                        <div className="font-bold text-brand-navy text-sm">{corr.name}</div>
+                        <div className="text-gray-500 font-mono text-[11px]">ID: {corr.idNumber}</div>
+                      </td>
+                      <td className="p-3.5 text-gray-600">
+                        <div>{corr.email}</div>
+                        <div>{corr.phone}</div>
+                        <div className="text-[11px] text-brand-navy mt-1 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                          <div className="font-bold text-slate-900 flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-brand-gold shrink-0" />
+                            <span>{displayBank}</span>
+                            {displayBranch && <span className="font-normal text-slate-500">({displayBranch})</span>}
+                          </div>
+                          {displayAcc && (
+                            <div className="font-mono text-slate-700 text-[10px] mt-0.5 font-semibold">
+                              A/C: {displayAcc}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <span className="bg-brand-teal text-white text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mb-1">
+                          {corr.county || "County Correspondent"}
+                        </span>
+                        <div className="text-slate-800 font-medium">{corr.specialisation}</div>
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-1 rounded-md border border-emerald-300 inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Active
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

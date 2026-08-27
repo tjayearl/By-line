@@ -4,7 +4,7 @@ import {
   UserPlus, FilePlus, ClipboardCheck, Settings,
   UploadCloud, FileText, Clock, Newspaper, CheckCircle2,
   DollarSign, ArrowRight, Users, RefreshCw, Layers,
-  Trash2, AlertTriangle, X, Edit3
+  Trash2, AlertTriangle, X, Edit3, Building2, Calendar
 } from "lucide-react";
 import { getDocs, collection, doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -12,7 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS,
   INITIAL_SUBMISSIONS, INITIAL_CLAIMS, clearAllStoriesData,
-  withdrawStoryFiling, deleteAssignment
+  withdrawStoryFiling, deleteAssignment, parseBankDetails
 } from "../lib/dataStore";
 import type { Assignment, Correspondent, PaymentClaim, Platform, Submission } from "../types";
 
@@ -206,12 +206,16 @@ export default function Dashboard() {
         uSnap.forEach((d) => {
           const u = d.data() as any;
           if (u.role === "correspondent" && u.email) {
+            const parsed = parseBankDetails(u.bankDetails || "");
             corrMap.set(u.email.toLowerCase(), {
               id: d.id,
               name: u.name || u.email,
               email: u.email,
               phone: u.phone || "",
               idNumber: u.idNumber || "",
+              bankName: u.bankName || parsed.bankName,
+              branch: u.branch || parsed.branch,
+              accountNumber: u.accountNumber || parsed.accountNumber,
               bankDetails: u.bankDetails || "",
               specialisation: u.specialisation || "News",
               county: u.county || "Nairobi",
@@ -248,7 +252,6 @@ export default function Dashboard() {
 
   const isCorrespondent = user.role === "correspondent";
   const isEditor = user.role === "editor" || user.role === "managing_editor" || user.role === "super_admin";
-  const isManagement = user.role === "managing_editor" || user.role === "super_admin";
 
   const userEmailLower = (user.email || "").toLowerCase().trim();
 
@@ -582,7 +585,7 @@ export default function Dashboard() {
         </h2>
 
         {isCorrespondent && (
-          <div className="grid sm:grid-cols-3 gap-4 mb-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <ActionCard
               to="/submit"
               icon={<UploadCloud className="w-6 h-6" />}
@@ -591,11 +594,18 @@ export default function Dashboard() {
               tag="Correspondent"
             />
             <ActionCard
-              to="/report"
+              to="/stories-report"
               icon={<FileText className="w-6 h-6" />}
-              title="Monthly Stories Report"
-              desc="View automatic payment calculations and download formal PDF payment requests for Finance."
-              tag="Finance Claim"
+              title="Published Stories Report"
+              desc="View your filed stories archive, where each story aired (TV, Radio, Web), and direct publication links."
+              tag="Broadcast Proof"
+            />
+            <ActionCard
+              to="/payment-report"
+              icon={<DollarSign className="w-6 h-6" />}
+              title="Payment Report & Claims"
+              desc="Select any duration or month, review calculated rates, bank details, and submit payment claims to Finance."
+              tag="Finance Gateway"
             />
             <ActionCard
               to="/assignments"
@@ -607,14 +617,15 @@ export default function Dashboard() {
           </div>
         )}
 
-        {isEditor && (
-          <div className="grid sm:grid-cols-3 gap-4 mb-6">
+        {/* Desk Editor Specific Modules */}
+        {user.role === "editor" && (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <ActionCard
-              to="/editor/register"
-              icon={<UserPlus className="w-6 h-6" />}
-              title="Register Correspondent"
-              desc="Internal onboarding: register correspondent contact, national ID, bank details, and beat specialisation."
-              tag="Desk Editor"
+              to="/editor/review"
+              icon={<ClipboardCheck className="w-6 h-6" />}
+              title="Review & Confirm Broadcast"
+              desc="Approve filings, record TV/Radio airing platforms, verify proof of use, and trigger automated rates."
+              tag="Editorial Gate"
             />
             <ActionCard
               to="/editor/assign"
@@ -624,29 +635,65 @@ export default function Dashboard() {
               tag="Commissioning"
             />
             <ActionCard
-              to="/editor/review"
-              icon={<ClipboardCheck className="w-6 h-6" />}
-              title="Review & Confirm Broadcast"
-              desc="Approve filings, record TV/Radio airing platforms, verify proof of use, and trigger automated rates."
-              tag="Editorial Gate"
+              to="/editor/register"
+              icon={<UserPlus className="w-6 h-6" />}
+              title="Register Correspondent"
+              desc="Internal onboarding: register correspondent contact, national ID, bank details, and beat specialisation."
+              tag="Desk Editor"
+            />
+            <ActionCard
+              to="/stories-report"
+              icon={<FileText className="w-6 h-6" />}
+              title="Stories Publication Archive"
+              desc="Access published stories across all correspondents, verify broadcast platforms, and open story links."
+              tag="Stories Archive"
+            />
+            <ActionCard
+              to="/payment-report"
+              icon={<DollarSign className="w-6 h-6" />}
+              title="Payment & Invoicing Reports"
+              desc="Generate duration-based financial reports, filter by correspondent or bureau, and export PDF/CSV."
+              tag="Payment Reports"
             />
           </div>
         )}
 
-        {isManagement && (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Managing Editor & Super Admin Modules */}
+        {(user.role === "managing_editor" || user.role === "super_admin") && (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <ActionCard
+              to="/editor/review"
+              icon={<ClipboardCheck className="w-6 h-6" />}
+              title="Review & Airing Confirmation"
+              desc="Review submissions queue, record broadcast airing platforms, and verify proof of use."
+              tag="Editorial Gate"
+            />
+            <ActionCard
+              to="/editor/assign"
+              icon={<FilePlus className="w-6 h-6" />}
+              title="Create Story Assignment"
+              desc="Commission stories to field correspondents across Kenyan counties with deadlines."
+              tag="Commissioning"
+            />
             <ActionCard
               to="/admin/rates"
               icon={<Settings className="w-6 h-6" />}
               title="Rate Card System Design"
-              desc="Set and update base rates per platform (TV National, Regional, Radio, Web, Social) applied across KBC."
+              desc="Set and update base compensation rates per platform (TV National, Regional, Radio, Web, Social)."
               tag="Rate Engine"
             />
             <ActionCard
-              to="/report"
+              to="/stories-report"
               icon={<FileText className="w-6 h-6" />}
-              title="Payment Summaries & Reports"
-              desc="Review all approved story filings, platform breakdowns, monthly claim statements, and export formal PDF invoices."
+              title="Published Stories Report"
+              desc="Review all filed and approved stories, broadcast airing platforms, bulletin notes, and live story links."
+              tag="Editorial Archive"
+            />
+            <ActionCard
+              to="/payment-report"
+              icon={<DollarSign className="w-6 h-6" />}
+              title="Payment Claims & Invoices"
+              desc="Duration-based compensation reports, bank disbursement schedules, claims verification, and PDF/CSV export."
               tag="Financial Gate"
             />
             {user.role === "super_admin" && (
@@ -658,6 +705,26 @@ export default function Dashboard() {
                 tag="Super Admin"
               />
             )}
+          </div>
+        )}
+
+        {/* Finance Role Modules */}
+        {user.role === "finance" && (
+          <div className="grid sm:grid-cols-2 gap-4 mb-6">
+            <ActionCard
+              to="/payment-report"
+              icon={<DollarSign className="w-6 h-6" />}
+              title="Payment Claims & Remittances"
+              desc="Review duration-based payment claims, correspondent bank accounts, mark claims as paid, and export PDF/CSV."
+              tag="Finance Claims"
+            />
+            <ActionCard
+              to="/stories-report"
+              icon={<FileText className="w-6 h-6" />}
+              title="Stories Publication Archive"
+              desc="Inspect filed stories, aired broadcast platforms, proof links, and verification status."
+              tag="Audit Archive"
+            />
           </div>
         )}
       </div>
@@ -1047,7 +1114,21 @@ export default function Dashboard() {
                     <tr key={sub.id} className="hover:bg-blue-50/50 transition">
                       <td className="p-4 font-semibold text-slate-900">
                         <div className="text-brand-navy font-bold">{sub.assignmentTitle}</div>
-                        <div className="text-xs text-gray-500 font-mono mt-0.5">{sub.id}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="text-xs text-gray-500 font-mono">{sub.id}</span>
+                          {sub.wetransferUrl && (
+                            <a
+                              href={sub.wetransferUrl.startsWith("http") ? sub.wetransferUrl : `https://${sub.wetransferUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.2 rounded border border-sky-200 inline-flex items-center gap-1 hover:bg-sky-200 transition"
+                              title="Open WeTransfer link in new tab"
+                            >
+                              <UploadCloud className="w-2.5 h-2.5 text-sky-600" />
+                              <span>WeTransfer</span>
+                            </a>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <span className="font-semibold text-slate-800">{sub.correspondentName}</span>
@@ -1151,10 +1232,30 @@ export default function Dashboard() {
 
         {/* Tab 4: Payment Claims Table */}
         {activeTab === "claims" && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse table-byline">
-              <thead>
-                <tr className="bg-gray-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b">
+          <div className="space-y-4">
+            <div className="p-4 bg-sky-50 border-b border-sky-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-sky-950 uppercase tracking-wider flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-brand-gold" />
+                  <span>Duration-Based Payment Reports & Remittance Invoicing</span>
+                </div>
+                <p className="text-[11px] text-sky-800 mt-0.5">
+                  Filter by any custom period, month, or quarter, and download official PDF disbursement statements or export to Excel.
+                </p>
+              </div>
+              <Link
+                to="/payment-report"
+                className="bg-brand-navy hover:bg-blue-900 text-white font-bold text-xs px-4 py-2 rounded-xl inline-flex items-center gap-1.5 shadow-xs transition shrink-0"
+              >
+                <span>Open Duration Report Generator</span>
+                <ArrowRight className="w-3.5 h-3.5 text-brand-gold" />
+              </Link>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse table-byline">
+                <thead>
+                  <tr className="bg-gray-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b">
                   <th className="p-4">Claim Ref & Period</th>
                   <th className="p-4">Correspondent & Bank Details</th>
                   <th className="p-4">Included Stories</th>
@@ -1168,7 +1269,7 @@ export default function Dashboard() {
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-gray-500">
                       {isCorrespondent
-                        ? "No payment claims lodged yet. Go to 'Monthly Stories Report' to submit your claim."
+                        ? "No payment claims lodged yet. Go to 'Payment Report' to submit your claim."
                         : "No payment claims lodged in the system yet."
                       }
                     </td>
@@ -1183,9 +1284,28 @@ export default function Dashboard() {
                       </td>
                       <td className="p-4">
                         <span className="font-bold text-slate-800 block">{claim.correspondentName}</span>
-                        <span className="text-xs text-gray-500 block">{claim.bankDetails}</span>
+                        {(() => {
+                          const parsed = parseBankDetails(claim.bankDetails);
+                          const bankName = claim.bankName || parsed.bankName || claim.bankDetails;
+                          const branch = claim.branch || parsed.branch;
+                          const acc = claim.accountNumber || parsed.accountNumber;
+                          return (
+                            <div className="text-xs text-brand-navy mt-1 bg-slate-50 p-2 rounded-lg border border-slate-200 inline-block">
+                              <div className="font-bold text-slate-900 flex items-center gap-1">
+                                <Building2 className="w-3 h-3 text-brand-gold shrink-0" />
+                                <span>{bankName}</span>
+                                {branch && <span className="font-normal text-slate-500">({branch})</span>}
+                              </div>
+                              {acc && (
+                                <div className="font-mono text-slate-700 text-[11px] mt-0.5 font-semibold">
+                                  A/C: {acc}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {claim.correspondentEmail && (
-                          <span className="text-[11px] text-gray-400 block">{claim.correspondentEmail}</span>
+                          <span className="text-[11px] text-gray-400 block mt-1">{claim.correspondentEmail}</span>
                         )}
                       </td>
                       <td className="p-4">
@@ -1217,7 +1337,7 @@ export default function Dashboard() {
                       <td className="p-4 text-right">
                         <div className="inline-flex items-center gap-2 justify-end">
                           <Link
-                            to="/report"
+                            to="/payment-report"
                             className="inline-flex items-center gap-1 text-xs font-bold text-brand-navy hover:text-blue-900 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg shadow-xs transition"
                           >
                             <FileText className="w-3.5 h-3.5" />
@@ -1243,6 +1363,7 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+        </div>
         )}
       </div>
 

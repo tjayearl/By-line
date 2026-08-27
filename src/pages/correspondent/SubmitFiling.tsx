@@ -72,6 +72,7 @@ export default function SubmitFiling() {
   const [storyHeadline, setStoryHeadline] = useState("");
   const [textContent, setTextContent] = useState("");
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [wetransferUrl, setWetransferUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [proofUrl, setProofUrl] = useState("");
@@ -97,6 +98,7 @@ export default function SubmitFiling() {
     setStoryHeadline(sub.assignmentTitle || "");
     setTextContent(sub.textContent || "");
     setMediaFiles(sub.mediaFiles || []);
+    setWetransferUrl(sub.wetransferUrl || "");
     if (sub.proofOfUse) {
       setProofUrl(sub.proofOfUse.url || "");
       setYoutubeUrl(sub.proofOfUse.youtubeUrl || "");
@@ -114,6 +116,7 @@ export default function SubmitFiling() {
     setStoryHeadline("");
     setTextContent("");
     setMediaFiles([]);
+    setWetransferUrl("");
     setProofUrl("");
     setYoutubeUrl("");
     setAudioClipUrl("");
@@ -340,8 +343,8 @@ export default function SubmitFiling() {
 
   const handleSubmitFiling = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textContent.trim() && mediaFiles.length === 0) {
-      setErrorMessage("Please enter story text copy or attach at least one field media file (Audio, Video, Photo).");
+    if (!textContent.trim() && mediaFiles.length === 0 && !wetransferUrl.trim()) {
+      setErrorMessage("Please enter story text copy, attach field media files, or provide a WeTransfer / cloud storage link.");
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
@@ -394,6 +397,7 @@ export default function SubmitFiling() {
             type: m.type || "document",
             size: m.size || "0 B",
           })),
+          wetransferUrl: wetransferUrl.trim() || undefined,
           submittedAt: new Date().toISOString(),
           status: "pending_review",
           editorialFeedback: existing?.editorialFeedback ? `${existing.editorialFeedback} (Updated & re-submitted)` : undefined,
@@ -466,6 +470,7 @@ export default function SubmitFiling() {
             type: m.type || "document",
             size: m.size || "0 B",
           })),
+          wetransferUrl: wetransferUrl.trim() || undefined,
           submittedAt: new Date().toISOString(),
           status: "pending_review",
           publishedPlatforms: [],
@@ -514,6 +519,7 @@ export default function SubmitFiling() {
         setMessage(`Story Filing [${subId}] "${newSub.assignmentTitle}" submitted successfully! Desk editors have received this in their Review Queue.`);
         setTextContent("");
         setMediaFiles([]);
+        setWetransferUrl("");
         setProofUrl("");
         setYoutubeUrl("");
         setAudioClipUrl("");
@@ -741,15 +747,22 @@ export default function SubmitFiling() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Field Media Uploads (Audio / Video / Photos)
+              Field Media Uploads (Audio / Video / Photos / WeTransfer)
             </label>
-            <span className="text-[11px] text-brand-navy font-semibold">
-              {mediaFiles.length} file(s) attached
-            </span>
+            <div className="flex items-center gap-2">
+              {wetransferUrl.trim() && (
+                <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-2 py-0.5 rounded-full border border-sky-200 inline-flex items-center gap-1">
+                  <UploadCloud className="w-3 h-3 text-sky-600" /> WeTransfer Linked
+                </span>
+              )}
+              <span className="text-[11px] text-brand-navy font-semibold">
+                {mediaFiles.length} file(s) attached
+              </span>
+            </div>
           </div>
 
           {/* Media Pickers Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
             <button
               type="button"
               onClick={() => audioInputRef.current?.click()}
@@ -757,7 +770,7 @@ export default function SubmitFiling() {
               className="p-3 bg-blue-50/80 hover:bg-blue-100 border border-blue-200 rounded-xl flex flex-col items-center gap-1.5 transition text-brand-navy cursor-pointer disabled:opacity-50"
             >
               <Music className="w-5 h-5 text-blue-600" />
-              <span className="text-xs font-bold">Add Audio Clip</span>
+              <span className="text-xs font-bold">Add Audio</span>
               <span className="text-[10px] text-gray-500">MP3, WAV, AAC</span>
             </button>
 
@@ -768,7 +781,7 @@ export default function SubmitFiling() {
               className="p-3 bg-purple-50/80 hover:bg-purple-100 border border-purple-200 rounded-xl flex flex-col items-center gap-1.5 transition text-purple-900 cursor-pointer disabled:opacity-50"
             >
               <Video className="w-5 h-5 text-purple-600" />
-              <span className="text-xs font-bold">Add Video Footage</span>
+              <span className="text-xs font-bold">Add Video</span>
               <span className="text-[10px] text-gray-500">MP4, MOV, MKV</span>
             </button>
 
@@ -793,6 +806,20 @@ export default function SubmitFiling() {
               <span className="text-xs font-bold">Add Document</span>
               <span className="text-[10px] text-gray-500">PDF, DOCX, TXT</span>
             </button>
+
+            <a
+              href="https://wetransfer.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-3 bg-sky-50/90 hover:bg-sky-100 border border-sky-300 rounded-xl flex flex-col items-center gap-1.5 transition text-sky-900 cursor-pointer shadow-xs text-center group"
+            >
+              <UploadCloud className="w-5 h-5 text-sky-600 group-hover:scale-110 transition" />
+              <span className="text-xs font-bold flex items-center gap-1">
+                <span>WeTransfer</span>
+                <ExternalLink className="w-3 h-3 text-sky-500" />
+              </span>
+              <span className="text-[10px] text-sky-700 font-medium">Large / Raw Files</span>
+            </a>
           </div>
 
           {/* Drag and Drop Zone */}
@@ -810,6 +837,72 @@ export default function SubmitFiling() {
             <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
             <p className="text-xs font-bold text-slate-700">Drag & drop files here, or click to browse any file</p>
             <p className="text-[10px] text-gray-400 mt-0.5">Supports audio clips, raw footage, photos, and background documents</p>
+          </div>
+
+          {/* WeTransfer / Large Files Cloud Link Input Section */}
+          <div className="mt-3 p-4 bg-linear-to-r from-sky-50/90 to-blue-50/60 rounded-2xl border-2 border-sky-200 shadow-xs space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-sky-600 text-white rounded-xl shadow-xs shrink-0">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-sky-950 uppercase tracking-wider block">
+                    WeTransfer / Cloud Large Files Link (Raw Footage & Multi-GB media)
+                  </label>
+                  <p className="text-[11px] text-sky-800">
+                    Need to send large camera footage or bulk photos? Upload to WeTransfer or Google Drive and paste the shareable download link below.
+                  </p>
+                </div>
+              </div>
+
+              <a
+                href="https://wetransfer.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl inline-flex items-center gap-1.5 shrink-0 shadow-sm transition"
+              >
+                <UploadCloud className="w-4 h-4 text-brand-gold" />
+                <span>Open WeTransfer</span>
+                <ExternalLink className="w-3 h-3 text-sky-200" />
+              </a>
+            </div>
+
+            <div className="relative">
+              <input
+                type="url"
+                value={wetransferUrl}
+                onChange={(e) => setWetransferUrl(e.target.value)}
+                placeholder="Paste WeTransfer link, e.g. https://we.tl/t-xxxxxxxx or https://wetransfer.com/downloads/... (or Google Drive/Dropbox)"
+                className="w-full pl-9 pr-28 py-2.5 text-xs sm:text-sm bg-white border border-sky-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-600 font-mono shadow-xs placeholder:text-gray-400"
+              />
+              <LinkIcon className="w-4 h-4 text-sky-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              {wetransferUrl.trim() ? (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <a
+                    href={wetransferUrl.startsWith("http") ? wetransferUrl : `https://${wetransferUrl}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-sky-100 hover:bg-sky-200 text-sky-900 text-[11px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 transition shadow-2xs"
+                  >
+                    <span>Test</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setWetransferUrl("")}
+                    className="text-gray-400 hover:text-red-600 p-1 rounded transition cursor-pointer"
+                    title="Clear link"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold uppercase text-sky-600 bg-sky-100 px-2 py-0.5 rounded">
+                  Optional
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Uploading Status Indicator */}

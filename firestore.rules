@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper: is user signed in with Firebase Auth?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Allow authenticated users full read/write access to all application data
+    match /users/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /assignments/{assignmentId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /submissions/{submissionId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /claims/{claimId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /mail/{mailId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

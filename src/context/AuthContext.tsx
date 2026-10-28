@@ -16,6 +16,7 @@ interface AuthContextType {
   setDemoRole: (role: Role | null) => void;
   switchRole: (role: Role | null) => void;
   logout: () => Promise<void>;
+  updateUserProfile: (name: string, role?: Role) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -26,6 +27,7 @@ const AuthContext = createContext<AuthContextType>({
   setDemoRole: () => {},
   switchRole: () => {},
   logout: async () => {},
+  updateUserProfile: () => {},
 });
 
 // Demo accounts for instant 1-click role testing
@@ -97,95 +99,95 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (claimRole) {
             resolvedRole = claimRole;
-          } else {
-            let profileFound = false;
+          }
 
-            // 2. Check Firestore doc by UID
+          let profileFound = false;
+
+          // 2. Check Firestore doc by UID
+          try {
+            const profileRef = doc(db, "users", fbUser.uid);
+            const profileSnap = await getDoc(profileRef);
+
+            if (profileSnap.exists()) {
+              const profileData = profileSnap.data() as { role?: Role; name?: string } | undefined;
+              if (profileData?.role && !claimRole) {
+                resolvedRole = profileData.role;
+              }
+              if (profileData?.name) {
+                resolvedName = profileData.name;
+              }
+              profileFound = true;
+            }
+          } catch (fsErr) {
+            console.warn("Could not query Firestore user profile by UID:", fsErr);
+          }
+
+          // 3. If not found by UID, search Firestore by email
+          if (!profileFound && userEmail) {
             try {
-              const profileRef = doc(db, "users", fbUser.uid);
-              const profileSnap = await getDoc(profileRef);
-
-              if (profileSnap.exists()) {
-                const profileData = profileSnap.data() as { role?: Role; name?: string } | undefined;
-                if (profileData?.role) {
-                  resolvedRole = profileData.role;
-                  profileFound = true;
-                }
-                if (profileData?.name) {
-                  resolvedName = profileData.name;
-                }
-              }
-            } catch (fsErr) {
-              console.warn("Could not query Firestore user profile by UID:", fsErr);
-            }
-
-            // 3. If not found by UID, search Firestore by email
-            if (!profileFound && userEmail) {
-              try {
-                const uSnap = await getDocs(collection(db, "users"));
-                uSnap.forEach((d) => {
-                  const u = d.data() as any;
-                  if (u && u.email && u.email.toLowerCase().trim() === userEmail) {
-                    if (u.role) {
-                      resolvedRole = u.role as Role;
-                      profileFound = true;
-                    }
-                    if (u.name) {
-                      resolvedName = u.name;
-                    }
+              const uSnap = await getDocs(collection(db, "users"));
+              uSnap.forEach((d) => {
+                const u = d.data() as any;
+                if (u && u.email && u.email.toLowerCase().trim() === userEmail) {
+                  if (u.role && !claimRole) {
+                    resolvedRole = u.role as Role;
                   }
-                });
-
-                if (profileFound) {
-                  try {
-                    await setDoc(doc(db, "users", fbUser.uid), {
-                      uid: fbUser.uid,
-                      email: userEmail,
-                      role: resolvedRole,
-                      name: resolvedName,
-                    }, { merge: true });
-                  } catch {}
-                }
-              } catch (fsErr2) {
-                console.warn("Could not query Firestore users collection by email:", fsErr2);
-              }
-            }
-
-            // 4. Check locally saved custom users from User Admin
-            if (!profileFound && userEmail) {
-              const customUsers = loadStoredData<any[]>("byline_custom_users_v1", []);
-              const foundCustom = customUsers.find(
-                (u) => u.email && u.email.toLowerCase().trim() === userEmail
-              );
-              if (foundCustom) {
-                if (foundCustom.role) {
-                  resolvedRole = foundCustom.role as Role;
+                  if (u.name) {
+                    resolvedName = u.name;
+                  }
                   profileFound = true;
                 }
-                if (foundCustom.name) {
-                  resolvedName = foundCustom.name;
-                }
-              }
-            }
+              });
 
-            // 5. Check mock user list (usersList)
-            if (!profileFound && userEmail) {
-              const mockUser = usersList.find(
-                (u) => u.email && u.email.toLowerCase().trim() === userEmail
-              );
-              if (mockUser) {
-                resolvedRole = mockUser.role as Role;
-                if (mockUser.name) resolvedName = mockUser.name;
-                profileFound = true;
+              if (profileFound) {
+                try {
+                  await setDoc(doc(db, "users", fbUser.uid), {
+                    uid: fbUser.uid,
+                    email: userEmail,
+                    role: resolvedRole,
+                    name: resolvedName,
+                  }, { merge: true });
+                } catch {}
               }
+            } catch (fsErr2) {
+              console.warn("Could not query Firestore users collection by email:", fsErr2);
             }
+          }
 
-            // 6. Check stored role in localStorage
-            if (!profileFound) {
-              const storedRole = localStorage.getItem("role") as Role | null;
-              if (storedRole) {
-                resolvedRole = storedRole;
+          // 4. Check locally saved custom users from User Admin
+          if (userEmail) {
+            const customUsers = loadStoredData<any[]>("byline_custom_users_v1", []);
+            const foundCustom = customUsers.find(
+              (u) => u.email && u.email.toLowerCase().trim() === userEmail
+            );
+            if (foundCustom) {
+              if (foundCustom.role && !claimRole && !profileFound) {
+                resolvedRole = foundCustom.role as Role;
               }
+              if (foundCustom.name && (!profileFound || resolvedName === userEmail)) {
+                resolvedName = foundCustom.name;
+              }
+              profileFound = true;
+            }
+          }
+
+          // 5. Check mock user list (usersList) as fallback
+          if (!profileFound && userEmail) {
+            const mockUser = usersList.find(
+              (u) => u.email && u.email.toLowerCase().trim() === userEmail
+            );
+            if (mockUser) {
+              if (!claimRole) resolvedRole = mockUser.role as Role;
+              if (mockUser.name) resolvedName = mockUser.name;
+              profileFound = true;
+            }
+          }
+
+          // 6. Check stored role in localStorage
+          if (!profileFound) {
+            const storedRole = localStorage.getItem("role") as Role | null;
+            if (storedRole && !claimRole) {
+              resolvedRole = storedRole;
             }
           }
         } catch (err) {
@@ -221,6 +223,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateUserProfile = (name: string, role?: Role) => {
+    setRealUser((prev) => (prev ? { ...prev, name, ...(role ? { role } : {}) } : null));
+  };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -254,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDemoRole,
         switchRole,
         logout,
+        updateUserProfile,
       }}
     >
       {children}

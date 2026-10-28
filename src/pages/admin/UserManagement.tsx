@@ -4,8 +4,9 @@ import {
   Search, CheckCircle2, AlertCircle, RefreshCw,
   Building2, Mail, UserCheck, X, Send
 } from "lucide-react";
-import { doc, getDocs, collection, setDoc, deleteDoc } from "firebase/firestore";
-import { db, createSecondaryUser } from "../../lib/firebase";
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from "firebase/firestore";
+import { updateProfile } from "firebase/auth";
+import { auth, db, createSecondaryUser } from "../../lib/firebase";
 import { sendUserWelcomeAndActivationEmail, resendAccountActivation } from "../../lib/emailService";
 import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS, formatBankDetails, parseBankDetails, POPULAR_KENYAN_BANKS } from "../../lib/dataStore";
 import { usersList } from "../../data/mockData";
@@ -52,7 +53,7 @@ const ROLE_CONFIG: Record<Role, { title: string; badgeClass: string; desc: strin
 };
 
 export default function UserManagement() {
-  const { user } = useAuth();
+  const { user, updateUserProfile } = useAuth();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -102,13 +103,24 @@ export default function UserManagement() {
     setRefreshing(true);
     try {
       const userMap = new Map<string, SystemUser>();
-      const deletedEmails = new Set(
-        loadStoredData<string[]>("byline_deleted_users_v1", []).map((e) => e.toLowerCase())
-      );
+      const localDeleted = loadStoredData<string[]>("byline_deleted_users_v1", []);
+      const deletedEmails = new Set(localDeleted.map((e) => e.toLowerCase().trim()));
+
+      // 0. Fetch cloud deleted emails from Firestore system/deleted_users so local stays in sync with live link
+      try {
+        const delSnap = await getDoc(doc(db, "system", "deleted_users"));
+        if (delSnap.exists()) {
+          const cloudDeleted = (delSnap.data()?.emails || []) as string[];
+          cloudDeleted.forEach((e) => deletedEmails.add(e.toLowerCase().trim()));
+          saveStoredData("byline_deleted_users_v1", Array.from(deletedEmails));
+        }
+      } catch (err) {
+        console.warn("Could not query Firestore deleted_users notice:", err);
+      }
 
       // 1. Load mock predefined users (skip if marked deleted)
       usersList.forEach((m) => {
-        const key = m.email.toLowerCase();
+        const key = m.email.toLowerCase().trim();
         if (!deletedEmails.has(key)) {
           userMap.set(key, {
             id: m.id || `usr-${key}`,
@@ -126,7 +138,7 @@ export default function UserManagement() {
       // 2. Load stored correspondents (skip if marked deleted)
       const storedCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", INITIAL_CORRESPONDENTS);
       storedCorrs.forEach((c) => {
-        const key = c.email.toLowerCase();
+        const key = c.email.toLowerCase().trim();
         if (!deletedEmails.has(key)) {
           const parsed = parseBankDetails(c.bankDetails);
           userMap.set(key, {
@@ -154,7 +166,7 @@ export default function UserManagement() {
       // 3. Load locally saved custom / updated users
       const customUsers = loadStoredData<SystemUser[]>("byline_custom_users_v1", []);
       customUsers.forEach((u) => {
-        const key = u.email.toLowerCase();
+        const key = u.email.toLowerCase().trim();
         if (!deletedEmails.has(key)) {
           userMap.set(key, u);
         }
@@ -165,8 +177,8 @@ export default function UserManagement() {
         const querySnapshot = await getDocs(collection(db, "users"));
         querySnapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          const email = (data.email || "").toLowerCase();
-          if (email && !deletedEmails.has(email)) {
+          const email = (data.email || "").toLowerCase().trim();
+          if (email && !deletedEmails.has(email) && data.status !== "deleted") {
             const parsed = parseBankDetails(data.bankDetails || "");
             userMap.set(email, {
               id: docSnap.id,
@@ -285,7 +297,15 @@ export default function UserManagement() {
       }
 
       try {
-        await setDoc(doc(db, "users", createdUid), userPayload);
+        await setDoc(doc(db, "users", createdUid), userPayload, { merge: true });
+        // Also update any existing docs matching this email in Firestore so role is consistent
+        const qSnap = await getDocs(collection(db, "users"));
+        for (const docSnap of qSnap.docs) {
+          const docData = docSnap.data();
+          if (docData && docData.email && docData.email.toLowerCase().trim() === emailTrimmed && docSnap.id !== createdUid) {
+            await setDoc(doc(db, "users", docSnap.id), { role: form.role, name: form.name.trim(), department: form.department.trim() }, { merge: true });
+          }
+        }
       } catch (fsErr) {
         console.warn("Firestore save notice:", fsErr);
       }
@@ -316,9 +336,9 @@ export default function UserManagement() {
         [newSystemUser, ...customUsers.filter((u) => u.email.toLowerCase() !== emailTrimmed)]
       );
 
-      // 4. If correspondent, sync to stored correspondents
+      // 4. If correspondent, sync to stored correspondents; else remove from correspondents
+      const storedCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", INITIAL_CORRESPONDENTS);
       if (form.role === "correspondent") {
-        const storedCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", INITIAL_CORRESPONDENTS);
         const newCorr: Correspondent = {
           id: createdUid,
           name: form.name.trim(),
@@ -336,11 +356,26 @@ export default function UserManagement() {
         };
         const updated = [newCorr, ...storedCorrs.filter((c) => c.email.toLowerCase() !== emailTrimmed)];
         saveStoredData("byline_correspondents_v1", updated);
+      } else {
+        saveStoredData(
+          "byline_correspondents_v1",
+          storedCorrs.filter((c) => c.email.toLowerCase() !== emailTrimmed)
+        );
       }
 
-      // Remove from deleted set if re-created
+      // Remove from deleted set (both local and cloud) if re-created
       const deletedEmails = loadStoredData<string[]>("byline_deleted_users_v1", []);
       saveStoredData("byline_deleted_users_v1", deletedEmails.filter((e) => e.toLowerCase() !== emailTrimmed));
+      try {
+        const delSnap = await getDoc(doc(db, "system", "deleted_users"));
+        if (delSnap.exists()) {
+          const existingCloud: string[] = delSnap.data()?.emails || [];
+          const updatedCloud = existingCloud.filter((e: string) => e.toLowerCase().trim() !== emailTrimmed);
+          await setDoc(doc(db, "system", "deleted_users"), { emails: updatedCloud });
+        }
+      } catch (delErr) {
+        console.warn("Could not unmark deleted user in Firestore:", delErr);
+      }
 
       // 5. Dispatch welcome email and account activation details
       await sendUserWelcomeAndActivationEmail({
@@ -407,7 +442,7 @@ export default function UserManagement() {
     setMessage(null);
 
     try {
-      const emailLower = editingUser.email.toLowerCase();
+      const emailLower = editingUser.email.toLowerCase().trim();
       const targetDocId = editingUser.uid || editingUser.id || `usr-${emailLower}`;
 
       const formattedBank = formatBankDetails({
@@ -418,7 +453,6 @@ export default function UserManagement() {
       });
 
       const updateData: any = {
-        uid: targetDocId,
         name: form.name.trim(),
         email: emailLower,
         role: form.role,
@@ -437,14 +471,31 @@ export default function UserManagement() {
         updateData.county = form.county;
       }
 
-      // 1. Write to Firestore
+      // 1. Write to Firestore - update targetDocId and ANY doc with this email
       try {
         await setDoc(doc(db, "users", targetDocId), updateData, { merge: true });
+        const qSnap = await getDocs(collection(db, "users"));
+        for (const docSnap of qSnap.docs) {
+          const docEmail = (docSnap.data()?.email || "").toLowerCase().trim();
+          if (docEmail === emailLower && docSnap.id !== targetDocId) {
+            await setDoc(doc(db, "users", docSnap.id), updateData, { merge: true });
+          }
+        }
       } catch (fsErr) {
         console.warn("Firestore update error:", fsErr);
       }
 
-      // 2. Save in persistent custom users store
+      // 2. If editing currently logged in user, update Firebase Auth profile & AuthContext
+      if (auth.currentUser && (auth.currentUser.email || "").toLowerCase().trim() === emailLower) {
+        try {
+          await updateProfile(auth.currentUser, { displayName: form.name.trim() });
+        } catch (authErr) {
+          console.warn("Could not update auth displayName:", authErr);
+        }
+        updateUserProfile(form.name.trim(), form.role);
+      }
+
+      // 3. Save in persistent custom users store
       const customUsers = loadStoredData<SystemUser[]>("byline_custom_users_v1", []);
       const updatedSystemUser: SystemUser = {
         ...editingUser,
@@ -467,7 +518,7 @@ export default function UserManagement() {
       ];
       saveStoredData("byline_custom_users_v1", newCustomList);
 
-      // 3. Update correspondents store
+      // 4. Update correspondents store
       const storedCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", INITIAL_CORRESPONDENTS);
       if (form.role === "correspondent") {
         const existingCorr = storedCorrs.find((c) => c.email.toLowerCase() === emailLower);
@@ -498,14 +549,14 @@ export default function UserManagement() {
         );
       }
 
-      // 4. Update state directly for immediate UI feedback
+      // 5. Update state directly for immediate UI feedback
       setUsers((prev) =>
         prev.map((u) => (u.email.toLowerCase() === emailLower ? { ...u, ...updatedSystemUser } : u))
       );
 
       setMessage({
         type: "success",
-        text: `Updated account for ${editingUser.email} (New Role: ${ROLE_CONFIG[form.role]?.title || form.role}).`,
+        text: `Updated account for ${editingUser.email} (Name: ${form.name.trim()}, Role: ${ROLE_CONFIG[form.role]?.title || form.role}).`,
       });
 
       setEditingUser(null);
@@ -530,38 +581,55 @@ export default function UserManagement() {
     }
 
     try {
-      const emailLower = u.email.toLowerCase();
+      const emailLower = u.email.toLowerCase().trim();
 
-      // 1. Add email and IDs to persistent deleted set
+      // 1. Add email and IDs to persistent local deleted set
       const deletedEmails = loadStoredData<string[]>("byline_deleted_users_v1", []);
-      if (!deletedEmails.map((e) => e.toLowerCase()).includes(emailLower)) {
+      if (!deletedEmails.map((e) => e.toLowerCase().trim()).includes(emailLower)) {
         saveStoredData("byline_deleted_users_v1", [...deletedEmails, emailLower]);
       }
 
-      // 2. Remove from Firestore
+      // 2. Persist deleted email to Firestore system/deleted_users so ALL clients (localhost & live) stay in sync!
+      try {
+        const delSnap = await getDoc(doc(db, "system", "deleted_users"));
+        const existingCloud: string[] = delSnap.exists() ? (delSnap.data()?.emails || []) : [];
+        const combined = Array.from(new Set([...existingCloud.map((e: string) => e.toLowerCase().trim()), emailLower]));
+        await setDoc(doc(db, "system", "deleted_users"), { emails: combined }, { merge: true });
+      } catch (fsErr) {
+        console.warn("Firestore save deleted notice:", fsErr);
+      }
+
+      // 3. Remove all matching documents from Firestore `users` collection
       try {
         if (u.uid) await deleteDoc(doc(db, "users", u.uid));
         if (u.id && u.id !== u.uid) await deleteDoc(doc(db, "users", u.id));
+        const qSnap = await getDocs(collection(db, "users"));
+        for (const docSnap of qSnap.docs) {
+          const docEmail = (docSnap.data()?.email || "").toLowerCase().trim();
+          if (docEmail === emailLower) {
+            await deleteDoc(doc(db, "users", docSnap.id));
+          }
+        }
       } catch (fsErr) {
         console.warn("Firestore delete notice:", fsErr);
       }
 
-      // 3. Remove from custom users store
+      // 4. Remove from custom users store
       const customUsers = loadStoredData<SystemUser[]>("byline_custom_users_v1", []);
       saveStoredData(
         "byline_custom_users_v1",
-        customUsers.filter((item) => item.email.toLowerCase() !== emailLower)
+        customUsers.filter((item) => item.email.toLowerCase().trim() !== emailLower)
       );
 
-      // 4. Remove from stored correspondents
+      // 5. Remove from stored correspondents
       const storedCorrs = loadStoredData<Correspondent[]>("byline_correspondents_v1", INITIAL_CORRESPONDENTS);
       saveStoredData(
         "byline_correspondents_v1",
-        storedCorrs.filter((c) => c.email.toLowerCase() !== emailLower)
+        storedCorrs.filter((c) => c.email.toLowerCase().trim() !== emailLower)
       );
 
-      // 5. Update local state immediately
-      setUsers((prev) => prev.filter((item) => item.email.toLowerCase() !== emailLower));
+      // 6. Update local state immediately
+      setUsers((prev) => prev.filter((item) => item.email.toLowerCase().trim() !== emailLower));
 
       setMessage({ type: "success", text: `Revoked access and deleted user ${u.email}.` });
     } catch (err: any) {

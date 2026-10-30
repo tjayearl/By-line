@@ -28,6 +28,9 @@ import { useAuth } from "../../context/AuthContext";
 import { Navigate, useSearchParams, Link } from "react-router-dom";
 import type { Assignment, MediaFile, Submission } from "../../types";
 import MediaPreviewModal from "../../components/MediaPreviewModal";
+import { extractTextFromPdfFile } from "../../lib/pdfTextExtractor";
+import RichTextEditor from "../../components/RichTextEditor";
+import { plainTextToHtml, isRichTextEmpty } from "../../lib/richText";
 import { readFileAsBase64, openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/mediaHelper";
 
 function formatFileSize(bytes: number): string {
@@ -72,6 +75,8 @@ export default function SubmitFiling() {
   const [storyHeadline, setStoryHeadline] = useState("");
   const [textContent, setTextContent] = useState("");
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [pdfExtracts, setPdfExtracts] = useState<{ name: string; text: string }[]>([]);
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [wetransferUrl, setWetransferUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -321,6 +326,23 @@ export default function SubmitFiling() {
 
       setMediaFiles((prev) => [...prev, ...uploadedList]);
       setMessage(`Successfully attached ${uploadedList.length} media file(s).`);
+
+      const pdfs = fileArray.filter((f) => isPdfFile({ name: f.name, type: f.type }));
+      if (pdfs.length > 0) {
+        setIsExtractingPdf(true);
+        const results: { name: string; text: string }[] = [];
+        for (const pdf of pdfs) {
+          try {
+            const text = await extractTextFromPdfFile(pdf);
+            results.push({ name: pdf.name, text });
+          } catch (pdfErr) {
+            console.warn("PDF text extraction notice:", pdfErr);
+            results.push({ name: pdf.name, text: "" });
+          }
+        }
+        setPdfExtracts((prev) => [...prev.filter((p) => !results.some((r) => r.name === p.name)), ...results]);
+        setIsExtractingPdf(false);
+      }
     } catch (err: any) {
       console.error("File selection error:", err);
       setErrorMessage(`Failed to attach files: ${err?.message || "Please try again."}`);
@@ -343,7 +365,7 @@ export default function SubmitFiling() {
 
   const handleSubmitFiling = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textContent.trim() && mediaFiles.length === 0 && !wetransferUrl.trim()) {
+    if (isRichTextEmpty(textContent) && mediaFiles.length === 0 && !wetransferUrl.trim()) {
       setErrorMessage("Please enter story text copy, attach field media files, or provide a WeTransfer / cloud storage link.");
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
@@ -734,13 +756,33 @@ export default function SubmitFiling() {
           <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
             Text Story / News Copy Draft
           </label>
-          <textarea
+          <RichTextEditor
             value={textContent}
-            onChange={(e) => setTextContent(e.target.value)}
-            rows={7}
+            onChange={setTextContent}
+            minHeight={200}
             placeholder="DATELINE, LOCATION — Enter full written news dispatch, cue sheets, intro, soundbite transcriptions, and reporter sign-off..."
-            className="w-full border rounded-xl p-4 text-xs sm:text-sm font-sans focus:outline-none focus:ring-2 focus:ring-brand-navy leading-relaxed placeholder:text-gray-400"
           />
+          {isExtractingPdf && (
+            <p className="text-xs text-gray-500 mt-2">Extracting text from PDF...</p>
+          )}
+          {pdfExtracts.map((p) => (
+            <div key={p.name} className="mt-2 flex items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+              <span className="text-xs text-slate-700 truncate">
+                {p.text.trim()
+                  ? `Text extracted from ${p.name} (${p.text.length.toLocaleString()} characters)`
+                  : `No selectable text found in ${p.name} (it may be a scanned PDF)`}
+              </span>
+              {p.text.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setTextContent((prev) => prev + plainTextToHtml(p.text))}
+                  className="shrink-0 text-xs font-bold text-white bg-brand-navy hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer"
+                >
+                  Insert into story
+                </button>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Field Media Uploads (Audio / Video / Photos) */}
@@ -1048,12 +1090,11 @@ export default function SubmitFiling() {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Airing Confirmation Notes</label>
-            <textarea
+            <RichTextEditor
               placeholder="e.g. Aired on KBC Channel 1 7:00 PM Primetime Bulletin on 18th Aug 2026, Package lead story."
               value={proofNotes}
-              onChange={(e) => setProofNotes(e.target.value)}
-              rows={2}
-              className="w-full border rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              onChange={setProofNotes}
+              minHeight={70}
             />
           </div>
         </div>

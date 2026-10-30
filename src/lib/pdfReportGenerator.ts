@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { PaymentClaim, Submission } from "../types";
 import { parseBankDetails } from "./dataStore";
+import { richTextToPlain } from "./richText";
 
 export function generateStoriesReportPDF(claim: PaymentClaim) {
   const doc = new jsPDF();
@@ -568,7 +569,8 @@ export function generateStoriesPublicationReportPDF(params: StoriesPublicationRe
         doc.setFont("helvetica", "bold");
         doc.text("Airing Note:", 16, y + 23);
         doc.setFont("helvetica", "italic");
-        const notesTrunc = sub.proofOfUse.notes.length > 80 ? sub.proofOfUse.notes.substring(0, 77) + "..." : sub.proofOfUse.notes;
+        const plainNotes = richTextToPlain(sub.proofOfUse.notes).replace(/\s*\n\s*/g, " ");
+        const notesTrunc = plainNotes.length > 80 ? plainNotes.substring(0, 77) + "..." : plainNotes;
         doc.text(`"${notesTrunc}"`, 36, y + 23);
       }
 
@@ -611,7 +613,7 @@ export function exportStoriesPublicationReportCSV(params: StoriesPublicationRepo
     `"${s.wetransferUrl || ''}"`,
     s.mediaFiles?.length || 0,
     `"${s.proofConfirmed ? 'Yes' : 'No'}"`,
-    `"${(s.proofOfUse?.notes || '').replace(/"/g, '""')}"`,
+    `"${richTextToPlain(s.proofOfUse?.notes).replace(/"/g, '""')}"`,
   ]);
 
   const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");

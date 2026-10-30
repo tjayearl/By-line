@@ -45,3 +45,10 @@
   background: #1A3E6F;
   border-radius: 3px;
 }
+
+.rich-editor:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
+.rich-editor ul, .rich-content ul { list-style: disc; padding-left: 1.25rem; }
+.rich-editor ol, .rich-content ol { list-style: decimal; padding-left: 1.25rem; }
+.rich-editor blockquote, .rich-content blockquote { border-left: 3px solid #d4a017; padding-left: .75rem; margin: .5rem 0; font-style: italic; }
+.rich-editor p, .rich-content p { margin: 0 0 .5rem; }
+.rich-content a { color: #1d4ed8; text-decoration: underline; }

@@ -31,7 +31,11 @@ import {
   generateStoriesPublicationReportPDF, 
   exportStoriesPublicationReportCSV 
 } from "../../lib/pdfReportGenerator";
-import type { Correspondent, Platform, Submission } from "../../types";
+import type { Correspondent, MediaFile, Platform, Submission } from "../../types";
+import { extractTextFromStoredPdf } from "../../lib/pdfTextExtractor";
+import RichText from "../../components/RichText";
+import { isRichTextEmpty, richTextToPlain } from "../../lib/richText";
+import { isPdfFile, openMediaSafely } from "../../lib/mediaHelper";
 
 type DatePreset = "this_month" | "last_month" | "last_30_days" | "last_90_days" | "year_to_date" | "all_time" | "custom";
 
@@ -110,6 +114,17 @@ export default function StoriesReport() {
   const [startDate, setStartDate] = useState(defaultDates.start);
   const [endDate, setEndDate] = useState(defaultDates.end);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [pdfTexts, setPdfTexts] = useState<Record<string, string>>({});
+
+  const handleExtractPdf = async (key: string, file: MediaFile) => {
+    setPdfTexts((prev) => ({ ...prev, [key]: "loading" }));
+    try {
+      const text = await extractTextFromStoredPdf(file);
+      setPdfTexts((prev) => ({ ...prev, [key]: text.trim() || "No selectable text found (the PDF may be scanned)." }));
+    } catch (err: any) {
+      setPdfTexts((prev) => ({ ...prev, [key]: `Could not extract text: ${err?.message || "unknown error"}` }));
+    }
+  };
 
   const isCorrespondent = user?.role === "correspondent";
   const userEmailLower = (user?.email || "").toLowerCase().trim();
@@ -221,8 +236,8 @@ export default function StoriesReport() {
         const q = searchQuery.toLowerCase();
         const matchesTitle = (s.assignmentTitle || "").toLowerCase().includes(q);
         const matchesId = (s.id || "").toLowerCase().includes(q);
-        const matchesBody = (s.textContent || "").toLowerCase().includes(q);
-        const matchesNotes = (s.proofOfUse?.notes || "").toLowerCase().includes(q);
+        const matchesBody = richTextToPlain(s.textContent).toLowerCase().includes(q);
+        const matchesNotes = richTextToPlain(s.proofOfUse?.notes).toLowerCase().includes(q);
         if (!matchesTitle && !matchesId && !matchesBody && !matchesNotes) return false;
       }
 
@@ -237,6 +252,8 @@ export default function StoriesReport() {
       if (selectedStatus === "verified" && !s.proofConfirmed) return false;
       if (selectedStatus === "pending_proof" && s.proofConfirmed) return false;
       if (selectedStatus === "approved" && s.status !== "approved") return false;
+      if (selectedStatus === "awaiting_review" && s.status !== "pending_review") return false;
+      if (selectedStatus === "reviewed" && s.status === "pending_review") return false;
 
       // 5. Date Window / Duration Filter
       if (selectedPreset !== "all_time" && (startDate || endDate)) {
@@ -502,6 +519,8 @@ export default function StoriesReport() {
               <option value="verified">Verified Proof Only</option>
               <option value="pending_proof">Pending Broadcast Proof</option>
               <option value="approved">Approved Filings Only</option>
+              <option value="awaiting_review">Awaiting Editor Review</option>
+              <option value="reviewed">Already Reviewed</option>
             </select>
           </div>
 
@@ -599,7 +618,26 @@ export default function StoriesReport() {
                     </h3>
                   </div>
 
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex flex-col items-end gap-1.5">
+                    <span
+                      className={`text-xs font-bold px-3 py-1 rounded-full ${
+                        story.status === "pending_review"
+                          ? "bg-slate-200 text-slate-700"
+                          : story.status === "approved"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : story.status === "revision_needed"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-rose-100 text-rose-800"
+                      }`}
+                    >
+                      {story.status === "pending_review"
+                        ? "Awaiting Review"
+                        : story.status === "approved"
+                        ? "Reviewed: Approved"
+                        : story.status === "revision_needed"
+                        ? "Reviewed: Revision Needed"
+                        : "Reviewed: Declined"}
+                    </span>
                     {story.proofConfirmed ? (
                       <span className="bg-brand-teal text-white text-xs font-bold px-3 py-1 rounded-full inline-flex items-center gap-1.5 shadow-xs">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Proof Verified
@@ -613,10 +651,20 @@ export default function StoriesReport() {
                 </div>
 
                 {/* Story Excerpt / Brief Content */}
-                {story.textContent && (
-                  <p className="text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100 line-clamp-3 leading-relaxed">
-                    {story.textContent}
-                  </p>
+                {story.textContent && !isRichTextEmpty(story.textContent) && (
+                  <RichText
+                    value={story.textContent}
+                    className="text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100 max-h-32 overflow-y-auto leading-relaxed"
+                  />
+                )}
+
+                {story.editorialFeedback && !isRichTextEmpty(story.editorialFeedback) && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-1">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                      Editor Review Notes{story.reviewedBy ? ` — ${story.reviewedBy}` : ""}
+                    </div>
+                    <RichText value={story.editorialFeedback} className="text-xs text-amber-900 leading-relaxed" />
+                  </div>
                 )}
 
                 {/* WHERE IT WAS PUBLISHED (Platforms Aired) */}
@@ -671,7 +719,7 @@ export default function StoriesReport() {
                   {story.proofOfUse?.notes && (
                     <div className="pt-2 text-xs text-slate-700 font-medium">
                       <span className="font-bold text-slate-900">Broadcast / Airing Bulletin: </span>
-                      <span className="italic">"{story.proofOfUse.notes}"</span>
+                      <RichText value={story.proofOfUse.notes} className="italic" />
                     </div>
                   )}
                 </div>
@@ -765,6 +813,45 @@ export default function StoriesReport() {
                       No external publication links or web URLs recorded for this story filing yet.
                     </div>
                   )}
+
+                  {(story.mediaFiles || []).filter((f) => isPdfFile(f)).map((file, fi) => {
+                    const key = `${story.id}:${fi}`;
+                    const extracted = pdfTexts[key];
+                    return (
+                      <div key={key} className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <FileText className="w-3.5 h-3.5 text-red-600" /> {file.name}
+                          </span>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openMediaSafely(file)}
+                              className="text-xs font-bold text-brand-navy border border-blue-300 hover:bg-blue-50 px-3 py-1 rounded-lg cursor-pointer"
+                            >
+                              View PDF
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleExtractPdf(key, file)}
+                              disabled={extracted === "loading"}
+                              className="text-xs font-bold text-white bg-brand-navy hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer disabled:opacity-50"
+                            >
+                              {extracted === "loading" ? "Extracting..." : "Extract Text"}
+                            </button>
+                          </div>
+                        </div>
+                        {extracted && extracted !== "loading" && (
+                          <textarea
+                            readOnly
+                            value={extracted}
+                            rows={8}
+                            className="w-full border rounded-lg p-3 text-xs leading-relaxed bg-slate-50"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );

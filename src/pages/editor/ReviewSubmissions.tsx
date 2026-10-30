@@ -24,6 +24,8 @@ import {
 import { doc, getDocs, collection, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import MediaPreviewModal from "../../components/MediaPreviewModal";
+import RichTextEditor from "../../components/RichTextEditor";
+import RichText from "../../components/RichText";
 import { openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/mediaHelper";
 import {
   loadStoredData, saveStoredData, INITIAL_SUBMISSIONS, DEFAULT_RATES,
@@ -209,7 +211,7 @@ export default function ReviewSubmissions() {
       const updatedSub: Submission = {
         ...selectedSub,
         status,
-        editorialFeedback: feedbackInput.trim(),
+        editorialFeedback: feedbackInput,
         reviewedBy: user?.name || user?.email || "Desk Editor",
         reviewedAt: new Date().toISOString(),
         publishedPlatforms: selectedPublishedPlatforms,
@@ -262,7 +264,7 @@ export default function ReviewSubmissions() {
             submissionId: selectedSub.id,
             storyTitle: selectedSub.assignmentTitle,
             status,
-            feedback: feedbackInput.trim(),
+            feedback: feedbackInput,
             reviewedBy: user?.name || "Desk Editor",
             publishedPlatforms: selectedPublishedPlatforms,
             calculatedAmountKES: calculatedSum,
@@ -539,9 +541,7 @@ export default function ReviewSubmissions() {
               {/* Text Content */}
               <div>
                 <h3 className="text-xs font-bold uppercase text-slate-700 mb-1">Story Text Content</h3>
-                <div className="bg-brand-offwhite p-4 rounded-xl text-xs sm:text-sm text-slate-800 leading-relaxed font-serif border border-gray-200 whitespace-pre-line">
-                  {selectedSub.textContent || "No text story body provided."}
-                </div>
+                <RichText value={selectedSub.textContent || "<p>No text story body provided.</p>"} className="bg-brand-offwhite p-4 rounded-xl text-xs sm:text-sm text-slate-800 leading-relaxed font-serif border border-gray-200" />
               </div>
 
               {/* Media Attachments & WeTransfer Cloud Links */}
@@ -759,7 +759,7 @@ export default function ReviewSubmissions() {
                     {selectedSub.proofOfUse.notes && (
                       <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
                         <span className="font-bold text-[11px] text-slate-700 block mb-0.5">Airing Confirmation Details:</span>
-                        <p className="text-gray-600 italic text-xs leading-relaxed">"{selectedSub.proofOfUse.notes}"</p>
+                        <RichText value={selectedSub.proofOfUse.notes} className="text-gray-600 italic text-xs leading-relaxed" />
                       </div>
                     )}
                   </div>
@@ -824,12 +824,11 @@ export default function ReviewSubmissions() {
                 <label className="block text-xs font-bold text-slate-700 uppercase">
                   Desk Editor Review Notes / Feedback (Sent to Correspondent)
                 </label>
-                <textarea
+                <RichTextEditor
                   placeholder="Provide feedback, revision instructions, broadcast package angle, or approval notes..."
                   value={feedbackInput}
-                  onChange={(e) => setFeedbackInput(e.target.value)}
-                  rows={3}
-                  className="w-full border rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy leading-relaxed"
+                  onChange={setFeedbackInput}
+                  minHeight={90}
                 />
 
                 {/* Approve/Decline/Revision Buttons */}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Clock, UploadCloud, ArrowRight, RefreshCw, FileText, CheckCircle2, AlertCircle, Edit3, Trash2, Lock, AlertTriangle, X, DollarSign } from "lucide-react";
+import RichText from "../../components/RichText";
 import { getDocs, collection } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_SUBMISSIONS, withdrawStoryFiling } from "../../lib/dataStore";
@@ -248,9 +249,7 @@ export default function CorrespondentDashboard() {
                     </div>
 
                     <h3 className="text-lg font-bold text-slate-900">{asg.title}</h3>
-                    <p className="text-xs sm:text-sm text-gray-600 leading-relaxed bg-brand-offwhite p-3 rounded-xl border">
-                      {asg.brief}
-                    </p>
+                    <RichText value={asg.brief} className="text-xs sm:text-sm text-gray-600 leading-relaxed bg-brand-offwhite p-3 rounded-xl border" />
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       <span className="text-xs font-bold text-slate-700">Target Platforms:</span>

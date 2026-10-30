@@ -7,6 +7,8 @@ import { sendAssignmentCommissionEmail } from "../../lib/emailService";
 import type { Assignment, Correspondent, Platform } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
+import RichTextEditor from "../../components/RichTextEditor";
+import { isRichTextEmpty } from "../../lib/richText";
 
 const PLATFORM_OPTIONS: { key: Platform; label: string; icon: string }[] = [
   { key: "tv_national", label: "TV Package (National)", icon: "📺" },
@@ -124,6 +126,10 @@ export default function CreateAssignment() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.correspondentId) return;
+    if (isRichTextEmpty(form.brief)) {
+      setMessage({ type: "error", text: "Please enter the editorial brief." });
+      return;
+    }
 
     setLoading(true);
     setMessage(null);
@@ -247,12 +253,11 @@ export default function CreateAssignment() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Editorial Brief & Angle</label>
-              <textarea
+              <RichTextEditor
                 placeholder="Detailed coverage instructions, required interviews, soundbites, or key focus points..."
                 value={form.brief}
-                onChange={(e) => setForm({ ...form, brief: e.target.value })}
-                rows={4}
-                className="w-full border rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                onChange={(html) => setForm({ ...form, brief: html })}
+                minHeight={110}
                 required
               />
             </div>

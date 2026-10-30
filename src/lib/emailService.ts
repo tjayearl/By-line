@@ -2,6 +2,7 @@ import { collection, addDoc } from "firebase/firestore";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth, db } from "./firebase";
 import { loadStoredData, saveStoredData } from "./dataStore";
+import { richTextToPlain, toSafeHtml } from "./richText";
 
 export interface OutgoingEmailLog {
   id: string;
@@ -248,7 +249,7 @@ export async function sendAssignmentCommissionEmail(params: {
 
             <div class="title-box">
               <h3>${title}</h3>
-              <p>${brief}</p>
+              ${toSafeHtml(brief)}
             </div>
 
             <div class="card">
@@ -278,7 +279,7 @@ export async function sendAssignmentCommissionEmail(params: {
         to: [emailLower],
         message: {
           subject: emailSubject,
-          text: `Dear ${correspondentName},\n\nYou have been commissioned a new story on KBC Byline.\nAssignment ID: ${assignmentId}\nTitle: ${title}\nBrief: ${brief}\nPlatforms: ${targetPlatforms.join(", ")}\nDeadline: ${formattedDeadline}\nCommissioned By: ${assignedBy}\n\nSubmit here: ${submitUrl}`,
+          text: `Dear ${correspondentName},\n\nYou have been commissioned a new story on KBC Byline.\nAssignment ID: ${assignmentId}\nTitle: ${title}\nBrief: ${richTextToPlain(brief)}\nPlatforms: ${targetPlatforms.join(", ")}\nDeadline: ${formattedDeadline}\nCommissioned By: ${assignedBy}\n\nSubmit here: ${submitUrl}`,
           html: emailHtml,
         },
         createdAt: new Date().toISOString(),
@@ -384,7 +385,7 @@ export async function sendEditorialReviewDecisionEmail(params: {
             ${feedback ? `
               <div class="feedback-box">
                 <strong>Desk Editor Notes / Feedback:</strong><br/>
-                "${feedback}"
+                ${toSafeHtml(feedback)}
               </div>
             ` : ""}
 
@@ -414,7 +415,7 @@ export async function sendEditorialReviewDecisionEmail(params: {
         to: [emailLower],
         message: {
           subject: emailSubject,
-          text: `Dear ${correspondentName},\n\nYour filing "${storyTitle}" [${submissionId}] was reviewed by ${reviewedBy}.\nStatus: ${statusLabel}\n${feedback ? `Feedback: ${feedback}\n` : ""}${calculatedAmountKES > 0 ? `Calculated Payout: KES ${calculatedAmountKES}\n` : ""}Portal link: ${portalUrl}`,
+          text: `Dear ${correspondentName},\n\nYour filing "${storyTitle}" [${submissionId}] was reviewed by ${reviewedBy}.\nStatus: ${statusLabel}\n${feedback ? `Feedback: ${richTextToPlain(feedback)}\n` : ""}${calculatedAmountKES > 0 ? `Calculated Payout: KES ${calculatedAmountKES}\n` : ""}Portal link: ${portalUrl}`,
           html: emailHtml,
         },
         createdAt: new Date().toISOString(),

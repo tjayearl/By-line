@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { getDocs, collection, doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { richTextToPlain } from "../lib/richText";
 import { useAuth } from "../context/AuthContext";
 import {
   loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS,
@@ -840,7 +841,7 @@ export default function Dashboard() {
                         <div className="text-brand-navy font-bold text-sm">{item.title}</div>
                         {item.brief && (
                           <p className="text-xs text-gray-500 line-clamp-1 mt-0.5 font-normal">
-                            {item.brief}
+                            {richTextToPlain(item.brief)}
                           </p>
                         )}
                       </td>
@@ -961,7 +962,7 @@ export default function Dashboard() {
                           </div>
                           {asg.brief && (
                             <p className="text-xs text-gray-500 line-clamp-1 mt-1 font-normal">
-                              {asg.brief}
+                              {richTextToPlain(asg.brief)}
                             </p>
                           )}
                         </td>

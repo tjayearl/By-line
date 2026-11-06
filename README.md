@@ -1,5 +1,17 @@
 # React + TypeScript + Vite
 
+## Filing and reviewing stories
+
+Correspondents can format story text using the editing toolbar; existing plain-text
+filings remain editable. Story text, assignment briefs, and editorial feedback are
+sanitized when displayed. Images should be added as attachments rather than pasted
+into the editor.
+
+Editors can open a specific submission from a dashboard **Review Filing** link.
+If that filing is no longer available, the review queue shows a notice instead of
+silently opening a different story. Finance users can open the stories report but
+do not have access to the editorial review queue.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

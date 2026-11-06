@@ -62,6 +62,10 @@ function ActionCard({ to, icon, title, desc, tag }: { to: string; icon: React.Re
   );
 }
 
+function reviewUrl(submissionId: string): string {
+  return `/editor/review?submission=${encodeURIComponent(submissionId)}`;
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -326,7 +330,7 @@ export default function Dashboard() {
   const findMatchingSubmission = (asg: Assignment): Submission | undefined => {
     return sortedSubmissions.find((s) => {
       // 1. Direct ID matching
-      if (s.assignmentId && (s.assignmentId === asg.id || s.assignmentId.toLowerCase() === asg.id.toLowerCase())) return true;
+      if (s.assignmentId) return s.assignmentId.toLowerCase() === asg.id.toLowerCase();
       if (s.id && s.id === asg.id) return true;
       
       // 2. Exact or substring title matching
@@ -370,23 +374,23 @@ export default function Dashboard() {
 
       let statusLabel = "Pending Desk Review";
       let statusBadgeClass = "bg-amber-500 text-white border-amber-500";
-      let actionUrl = isCorrespondent ? `/submit?edit=${matchSub.id}` : "/editor/review";
+      let actionUrl = isCorrespondent ? `/submit?edit=${matchSub.id}` : reviewUrl(matchSub.id);
       let actionLabel = isCorrespondent ? "Edit Filing" : "Review Filing";
 
       if (isApproved) {
         statusLabel = "Approved (Ready for Payout)";
         statusBadgeClass = "bg-brand-teal text-white border-brand-teal";
-        actionUrl = isCorrespondent ? "/report" : "/editor/review";
+        actionUrl = isCorrespondent ? "/report" : reviewUrl(matchSub.id);
         actionLabel = isCorrespondent ? "View Report" : "Review Details";
       } else if (isRevision) {
         statusLabel = "Revision Requested";
         statusBadgeClass = "bg-orange-600 text-white border-orange-600";
-        actionUrl = isCorrespondent ? `/submit?edit=${matchSub.id}` : "/editor/review";
+        actionUrl = isCorrespondent ? `/submit?edit=${matchSub.id}` : reviewUrl(matchSub.id);
         actionLabel = isCorrespondent ? "Revise Story" : "Review Queue";
       } else if (isDeclined) {
         statusLabel = "Declined";
         statusBadgeClass = "bg-brand-red text-white border-brand-red";
-        actionUrl = isCorrespondent ? "/report" : "/editor/review";
+        actionUrl = isCorrespondent ? "/report" : reviewUrl(matchSub.id);
         actionLabel = "View Notes";
       }
 
@@ -455,23 +459,23 @@ export default function Dashboard() {
 
       let statusLabel = "Pending Desk Review";
       let statusBadgeClass = "bg-amber-500 text-white border-amber-500";
-      let actionUrl = isCorrespondent ? `/submit?edit=${s.id}` : "/editor/review";
+      let actionUrl = isCorrespondent ? `/submit?edit=${s.id}` : reviewUrl(s.id);
       let actionLabel = isCorrespondent ? "Edit Filing" : "Review Filing";
 
       if (isApproved) {
         statusLabel = "Approved (Ready for Payout)";
         statusBadgeClass = "bg-brand-teal text-white border-brand-teal";
-        actionUrl = isCorrespondent ? "/report" : "/editor/review";
+        actionUrl = isCorrespondent ? "/report" : reviewUrl(s.id);
         actionLabel = isCorrespondent ? "View Report" : "Review Details";
       } else if (isRevision) {
         statusLabel = "Revision Requested";
         statusBadgeClass = "bg-orange-600 text-white border-orange-600";
-        actionUrl = isCorrespondent ? `/submit?edit=${s.id}` : "/editor/review";
+        actionUrl = isCorrespondent ? `/submit?edit=${s.id}` : reviewUrl(s.id);
         actionLabel = isCorrespondent ? "Revise Story" : "Review Queue";
       } else if (isDeclined) {
         statusLabel = "Declined";
         statusBadgeClass = "bg-brand-red text-white border-brand-red";
-        actionUrl = isCorrespondent ? "/report" : "/editor/review";
+        actionUrl = isCorrespondent ? "/report" : reviewUrl(s.id);
         actionLabel = "View Notes";
       }
 
@@ -885,14 +889,16 @@ export default function Dashboard() {
                       </td>
                       <td className="p-4 text-right">
                         <div className="inline-flex items-center gap-1.5 justify-end">
-                          <Link
-                            to={item.actionUrl}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-slate-900 bg-brand-gold hover:bg-yellow-500 px-3 py-1.5 rounded-lg shadow-xs transition"
-                          >
-                            {item.actionLabel.includes("Edit") && <Edit3 className="w-3.5 h-3.5" />}
-                            <span>{item.actionLabel}</span>
-                            {!item.actionLabel.includes("Edit") && <ArrowRight className="w-3.5 h-3.5" />}
-                          </Link>
+                          {(isCorrespondent || isEditor || user.role === "finance") && (
+                            <Link
+                              to={user.role === "finance" ? "/report" : item.actionUrl}
+                              className="inline-flex items-center gap-1 text-xs font-bold text-slate-900 bg-brand-gold hover:bg-yellow-500 px-3 py-1.5 rounded-lg shadow-xs transition"
+                            >
+                              {item.actionLabel.includes("Edit") && <Edit3 className="w-3.5 h-3.5" />}
+                              <span>{user.role === "finance" ? "View Report" : item.actionLabel}</span>
+                              {!item.actionLabel.includes("Edit") && <ArrowRight className="w-3.5 h-3.5" />}
+                            </Link>
+                          )}
 
                           {isCorrespondent && (item.status === "pending_review" || item.status === "revision_needed") && (
                             <button
@@ -1046,17 +1052,17 @@ export default function Dashboard() {
                               </>
                             ) : (
                               <>
-                                <Link
-                                  to="/editor/review"
+                                {(isEditor || user.role === "finance") && <Link
+                                  to={user.role === "finance" ? "/report" : matchSub ? reviewUrl(matchSub.id) : "/editor/review"}
                                   className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition ${
                                     isPending
                                       ? "text-slate-900 bg-brand-gold hover:bg-yellow-500"
                                       : "text-brand-navy hover:text-blue-900 hover:underline"
                                   }`}
                                 >
-                                  <span>{isPending ? "Review Filing" : "Review Queue"}</span>
+                                  <span>{user.role === "finance" ? "View Report" : isPending ? "Review Filing" : "Review Queue"}</span>
                                   <ArrowRight className="w-3.5 h-3.5" />
-                                </Link>
+                                </Link>}
 
                                 <button
                                   type="button"
@@ -1212,12 +1218,12 @@ export default function Dashboard() {
                                 </>
                               )}
                             </>
-                          ) : (
+                          ) : (isEditor || user.role === "finance") && (
                             <Link
-                              to="/editor/review"
+                              to={user.role === "finance" ? "/report" : reviewUrl(sub.id)}
                               className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition text-slate-900 bg-brand-gold hover:bg-yellow-500"
                             >
-                              <span>{sub.status === "pending_review" ? "Review Filing" : "Review Queue"}</span>
+                              <span>{user.role === "finance" ? "View Report" : sub.status === "pending_review" ? "Review Filing" : "Review Queue"}</span>
                               <ArrowRight className="w-3.5 h-3.5" />
                             </Link>
                           )}

@@ -33,9 +33,9 @@ import {
   calculatePaymentForPlatforms, parseBankDetails
 } from "../../lib/dataStore";
 import { sendEditorialReviewDecisionEmail } from "../../lib/emailService";
-import type { Assignment, Correspondent, MediaFile, Platform, RateCardEntry, Submission } from "../../types";
+import type { AppUser, Assignment, Correspondent, MediaFile, Platform, RateCardEntry, Submission } from "../../types";
 import { useAuth } from "../../context/AuthContext";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 
 const PLATFORMS_LIST: { key: Platform; label: string }[] = [
   { key: "tv_national", label: "TV Package (National)" },
@@ -49,11 +49,14 @@ const PLATFORMS_LIST: { key: Platform; label: string }[] = [
 export default function ReviewSubmissions() {
   const { user } = useAuth();
 
-  // Check if user is authorized to access this page at all
   if (!user || !["super_admin", "managing_editor", "editor"].includes(user.role)) {
     return <Navigate to="/" replace />;
   }
 
+  return <ReviewSubmissionsContent user={user} />;
+}
+
+function ReviewSubmissionsContent({ user }: { user: AppUser }) {
   // Determine if user is Managing Editor (limited access)
   const isManagingEditor = user.role === "managing_editor";
 
@@ -69,6 +72,8 @@ export default function ReviewSubmissions() {
   const [filterStatus, setFilterStatus] = useState<"all" | "pending_review" | "approved" | "revision_needed" | "declined">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [previewModalFile, setPreviewModalFile] = useState<MediaFile | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSubmissionId = searchParams.get("submission");
 
   const loadData = async () => {
     setLoading(true);
@@ -175,11 +180,23 @@ export default function ReviewSubmissions() {
     };
   }, []);
 
+  useEffect(() => {
+    if (loading || !requestedSubmissionId) return;
+    const target = submissions.find((sub) => sub.id === requestedSubmissionId);
+    if (target && selectedSub?.id !== target.id) {
+      setSelectedSub(target);
+      setSelectedPublishedPlatforms(target.publishedPlatforms || []);
+      setFeedbackInput(target.editorialFeedback || "");
+      setActionMessage(null);
+    }
+  }, [loading, requestedSubmissionId, submissions, selectedSub?.id]);
+
   const selectSubmission = (sub: Submission) => {
     setSelectedSub(sub);
     setSelectedPublishedPlatforms(sub.publishedPlatforms || []);
     setFeedbackInput(sub.editorialFeedback || "");
     setActionMessage(null);
+    setSearchParams({ submission: sub.id }, { replace: true });
   };
 
   const togglePlatform = (p: Platform) => {
@@ -505,7 +522,11 @@ export default function ReviewSubmissions() {
 
         {/* Right Submission Review & Platform Confirmation Panel */}
         <div className="lg:col-span-8 space-y-6">
-          {selectedSub ? (
+          {!loading && requestedSubmissionId && !submissions.some((sub) => sub.id === requestedSubmissionId) ? (
+            <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-900 p-4 rounded-xl text-sm">
+              Filing [{requestedSubmissionId}] was not found. It may have been removed or may not be available to this account. Select another filing from the queue.
+            </div>
+          ) : selectedSub && (!requestedSubmissionId || selectedSub.id === requestedSubmissionId) ? (
             <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
               {/* Top Details */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">

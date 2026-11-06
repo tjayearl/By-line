@@ -30,7 +30,7 @@ import type { Assignment, MediaFile, Submission } from "../../types";
 import MediaPreviewModal from "../../components/MediaPreviewModal";
 import { extractTextFromPdfFile } from "../../lib/pdfTextExtractor";
 import RichTextEditor from "../../components/RichTextEditor";
-import { plainTextToHtml, isRichTextEmpty } from "../../lib/richText";
+import { plainTextToHtml, isRichTextEmpty, toSafeHtml } from "../../lib/richText";
 import { readFileAsBase64, openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/mediaHelper";
 
 function formatFileSize(bytes: number): string {
@@ -759,6 +759,7 @@ export default function SubmitFiling() {
           <RichTextEditor
             value={textContent}
             onChange={setTextContent}
+            disabled={loading}
             minHeight={200}
             placeholder="DATELINE, LOCATION — Enter full written news dispatch, cue sheets, intro, soundbite transcriptions, and reporter sign-off..."
           />
@@ -775,7 +776,7 @@ export default function SubmitFiling() {
               {p.text.trim() && (
                 <button
                   type="button"
-                  onClick={() => setTextContent((prev) => prev + plainTextToHtml(p.text))}
+                  onClick={() => setTextContent((prev) => toSafeHtml(prev) + plainTextToHtml(p.text))}
                   className="shrink-0 text-xs font-bold text-white bg-brand-navy hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer"
                 >
                   Insert into story
@@ -1094,6 +1095,7 @@ export default function SubmitFiling() {
               placeholder="e.g. Aired on KBC Channel 1 7:00 PM Primetime Bulletin on 18th Aug 2026, Package lead story."
               value={proofNotes}
               onChange={setProofNotes}
+              disabled={loading}
               minHeight={70}
             />
           </div>

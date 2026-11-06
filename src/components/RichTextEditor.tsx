@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Bold, Italic, Underline, List, ListOrdered, Quote, Eraser } from "lucide-react";
-import { toSafeHtml, isRichTextEmpty } from "../lib/richText";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import { Bold, Italic, Underline, Heading2, List, ListOrdered, Quote, Eraser, Undo2, Redo2 } from "lucide-react";
+import { toSafeHtml } from "../lib/richText";
 
 interface Props {
   value: string;
@@ -8,76 +10,91 @@ interface Props {
   placeholder?: string;
   minHeight?: number;
   required?: boolean;
+  disabled?: boolean;
 }
 
-const TOOLS = [
-  { cmd: "bold", icon: Bold, label: "Bold" },
-  { cmd: "italic", icon: Italic, label: "Italic" },
-  { cmd: "underline", icon: Underline, label: "Underline" },
-  { cmd: "insertUnorderedList", icon: List, label: "Bullet list" },
-  { cmd: "insertOrderedList", icon: ListOrdered, label: "Numbered list" },
-  { cmd: "formatBlock", arg: "blockquote", icon: Quote, label: "Quote / soundbite" },
-  { cmd: "removeFormat", icon: Eraser, label: "Clear formatting" },
-] as const;
+export default function RichTextEditor({ value, onChange, placeholder, minHeight = 120, required, disabled = false }: Props) {
+  const lastEmitted = useRef(value);
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [2, 3] },
+        code: false,
+        codeBlock: false,
+        horizontalRule: false,
+      }),
+    ],
+    content: toSafeHtml(value),
+    editable: !disabled,
+    shouldRerenderOnTransaction: true,
+    editorProps: {
+      attributes: {
+        class: "rich-editor p-3 text-xs sm:text-sm leading-relaxed focus:outline-none",
+        style: `min-height: ${minHeight}px`,
+        role: "textbox",
+        "aria-multiline": "true",
+        "aria-label": placeholder || "Rich text editor",
+        "aria-required": required ? "true" : "false",
+      },
+      transformPastedHTML: (html) => toSafeHtml(html),
+    },
+    onUpdate: ({ editor: currentEditor }) => {
+      const html = currentEditor.isEmpty ? "" : toSafeHtml(currentEditor.getHTML());
+      lastEmitted.current = html;
+      onChange(html);
+    },
+  });
 
-export default function RichTextEditor({ value, onChange, placeholder, minHeight = 120, required }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
-  const lastEmitted = useRef<string>("");
-
-  // Only overwrite the DOM for external changes (loading a draft, inserting PDF text), not while typing.
   useEffect(() => {
-    if (!ref.current || value === lastEmitted.current) return;
-    ref.current.innerHTML = toSafeHtml(value);
+    if (!editor || value === lastEmitted.current) return;
+    editor.commands.setContent(toSafeHtml(value), { emitUpdate: false });
     lastEmitted.current = value;
-  }, [value]);
+  }, [editor, value]);
 
-  const emit = () => {
-    if (!ref.current) return;
-    const html = isRichTextEmpty(ref.current.innerHTML) ? "" : ref.current.innerHTML;
-    lastEmitted.current = html;
-    onChange(html);
-  };
+  useEffect(() => {
+    editor?.setEditable(!disabled, false);
+  }, [editor, disabled]);
 
-  const run = (cmd: string, arg?: string) => {
-    ref.current?.focus();
-    document.execCommand(cmd, false, arg);
-    emit();
-  };
+  if (!editor) return null;
+
+  const tools = [
+    { label: "Bold", icon: Bold, active: editor.isActive("bold"), run: () => editor.chain().focus().toggleBold().run() },
+    { label: "Italic", icon: Italic, active: editor.isActive("italic"), run: () => editor.chain().focus().toggleItalic().run() },
+    { label: "Underline", icon: Underline, active: editor.isActive("underline"), run: () => editor.chain().focus().toggleUnderline().run() },
+    { label: "Heading", icon: Heading2, active: editor.isActive("heading", { level: 2 }), run: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+    { label: "Bullet list", icon: List, active: editor.isActive("bulletList"), run: () => editor.chain().focus().toggleBulletList().run() },
+    { label: "Numbered list", icon: ListOrdered, active: editor.isActive("orderedList"), run: () => editor.chain().focus().toggleOrderedList().run() },
+    { label: "Quote / soundbite", icon: Quote, active: editor.isActive("blockquote"), run: () => editor.chain().focus().toggleBlockquote().run() },
+    { label: "Clear formatting", icon: Eraser, run: () => editor.chain().focus().unsetAllMarks().clearNodes().run() },
+    { label: "Undo", icon: Undo2, run: () => editor.chain().focus().undo().run(), unavailable: !editor.can().undo() },
+    { label: "Redo", icon: Redo2, run: () => editor.chain().focus().redo().run(), unavailable: !editor.can().redo() },
+  ];
 
   return (
     <div className="border rounded-xl bg-white focus-within:ring-2 focus-within:ring-brand-navy overflow-hidden">
-      <div className="flex flex-wrap gap-1 border-b bg-slate-50 px-2 py-1.5">
-        {TOOLS.map((t) => (
+      <div className="flex flex-wrap gap-1 border-b bg-slate-50 px-2 py-1.5" role="toolbar" aria-label="Text formatting">
+        {tools.map((tool) => (
           <button
-            key={t.label}
+            key={tool.label}
             type="button"
-            title={t.label}
-            aria-label={t.label}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => run(t.cmd, "arg" in t ? t.arg : undefined)}
-            className="p-1.5 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+            title={tool.label}
+            aria-label={tool.label}
+            aria-pressed={tool.active}
+            disabled={disabled || tool.unavailable}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={tool.run}
+            className={`p-1.5 rounded hover:bg-slate-200 disabled:opacity-40 cursor-pointer ${tool.active ? "bg-slate-200 text-blue-700" : "text-slate-700"}`}
           >
-            <t.icon className="w-4 h-4" />
+            <tool.icon className="w-4 h-4" />
           </button>
         ))}
       </div>
-      <div
-        ref={ref}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        aria-required={required}
-        data-placeholder={placeholder}
-        onInput={emit}
-        onBlur={emit}
-        onPaste={(e) => {
-          e.preventDefault();
-          document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
-        }}
-        style={{ minHeight }}
-        className="rich-editor p-3 text-xs sm:text-sm leading-relaxed focus:outline-none"
-      />
+      <div className="relative">
+        {editor.isEmpty && placeholder && (
+          <span className="pointer-events-none absolute left-3 top-3 text-gray-400 text-xs sm:text-sm">{placeholder}</span>
+        )}
+        <EditorContent editor={editor} />
+      </div>
     </div>
   );
 }

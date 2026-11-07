@@ -20,10 +20,13 @@ import {
   Download,
   FileText
 } from "lucide-react";
-import { doc, getDocs, collection, setDoc, updateDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../../lib/firebase";
-import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_SUBMISSIONS } from "../../lib/dataStore";
+import {
+  loadStoredData, saveStoredData,
+  fetchSynchronizedAssignments, fetchSynchronizedSubmissions
+} from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate, useSearchParams, Link } from "react-router-dom";
 import type { Assignment, MediaFile, Submission } from "../../types";
@@ -134,46 +137,12 @@ export default function SubmitFiling() {
 
   const loadData = async () => {
     try {
-      // 1. Assignments (merge localStorage and Firestore)
-      const localAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
-      const asgMap = new Map<string, Assignment>();
-      localAsgs.forEach((a) => { if (a && a.id) asgMap.set(a.id, a); });
-      try {
-        const snap = await getDocs(collection(db, "assignments"));
-        snap.forEach((d) => {
-          const a = d.data() as Assignment;
-          if (a && (a.id || d.id)) {
-            const id = a.id || d.id;
-            const existing = asgMap.get(id);
-            asgMap.set(id, { ...existing, ...a, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore assignments fetch notice:", fsErr);
-      }
-      const allAsg = Array.from(asgMap.values());
-      saveStoredData("byline_assignments_v1", allAsg);
+      // 1. Assignments (synchronized with cloud reset)
+      const allAsg = await fetchSynchronizedAssignments();
       setAssignments(allAsg);
 
-      // 2. Submissions (merge localStorage and Firestore)
-      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
-      const subMap = new Map<string, Submission>();
-      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
-      try {
-        const subSnap = await getDocs(collection(db, "submissions"));
-        subSnap.forEach((d) => {
-          const s = d.data() as Submission;
-          if (s && (s.id || d.id)) {
-            const id = s.id || d.id;
-            const existing = subMap.get(id);
-            subMap.set(id, { ...existing, ...s, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore submissions lookup notice:", fsErr);
-      }
-      const allSubs = Array.from(subMap.values());
-      saveStoredData("byline_submissions_v1", allSubs);
+      // 2. Submissions (synchronized with cloud reset)
+      const allSubs = await fetchSynchronizedSubmissions();
       setSubmissions(allSubs);
 
       // Check query param for edit or assignment

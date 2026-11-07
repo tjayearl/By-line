@@ -11,9 +11,10 @@ import { db } from "../lib/firebase";
 import { richTextToPlain } from "../lib/richText";
 import { useAuth } from "../context/AuthContext";
 import {
-  loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS,
-  INITIAL_SUBMISSIONS, INITIAL_CLAIMS, clearAllStoriesData,
-  withdrawStoryFiling, deleteAssignment, parseBankDetails
+  loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS,
+  clearAllStoriesData,
+  withdrawStoryFiling, deleteAssignment, parseBankDetails,
+  fetchSynchronizedAssignments, fetchSynchronizedSubmissions, fetchSynchronizedClaims
 } from "../lib/dataStore";
 import type { Assignment, Correspondent, PaymentClaim, Platform, Submission } from "../types";
 
@@ -108,7 +109,7 @@ export default function Dashboard() {
     setIsResetting(true);
     setResetFeedback(null);
     try {
-      const res = await clearAllStoriesData();
+      const res = await clearAllStoriesData(user?.email || "Super Admin");
       await fetchData();
       setResetFeedback(res.message);
       setTimeout(() => {
@@ -140,63 +141,16 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Assignments (merge localStorage and Firestore)
-      const localAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
-      const asgMap = new Map<string, Assignment>();
-      localAsgs.forEach((a) => { if (a && a.id) asgMap.set(a.id, a); });
-      try {
-        const asgSnap = await getDocs(collection(db, "assignments"));
-        asgSnap.forEach((d) => {
-          const a = d.data() as Assignment;
-          if (a && (a.id || d.id)) {
-            const id = a.id || d.id;
-            const existing = asgMap.get(id);
-            asgMap.set(id, { ...existing, ...a, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore asg notice:", fsErr);
-      }
-      const allAsgs = Array.from(asgMap.values());
-      saveStoredData("byline_assignments_v1", allAsgs);
+      // 1. Assignments (synchronized with cloud reset)
+      const allAsgs = await fetchSynchronizedAssignments();
       setAssignments(allAsgs);
 
-      // 2. Submissions (merge localStorage and Firestore)
-      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
-      const subMap = new Map<string, Submission>();
-      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
-      try {
-        const subSnap = await getDocs(collection(db, "submissions"));
-        subSnap.forEach((d) => {
-          const s = d.data() as Submission;
-          if (s && (s.id || d.id)) {
-            const id = s.id || d.id;
-            const existing = subMap.get(id);
-            subMap.set(id, { ...existing, ...s, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore subs notice:", fsErr);
-      }
-      const allSubs = Array.from(subMap.values());
-      saveStoredData("byline_submissions_v1", allSubs);
+      // 2. Submissions (synchronized with cloud reset)
+      const allSubs = await fetchSynchronizedSubmissions();
       setSubmissions(allSubs);
 
-      // 3. Claims
-      let allClaims: PaymentClaim[] = [];
-      try {
-        const claimSnap = await getDocs(collection(db, "claims"));
-        const fsClaims: PaymentClaim[] = [];
-        claimSnap.forEach((d) => {
-          const c = d.data() as PaymentClaim;
-          if (c && (c.id || d.id)) fsClaims.push({ ...c, id: c.id || d.id });
-        });
-        allClaims = fsClaims;
-        saveStoredData("byline_claims_v1", fsClaims);
-      } catch (fsErr) {
-        console.warn("Firestore claims notice:", fsErr);
-        allClaims = loadStoredData<PaymentClaim[]>("byline_claims_v1", INITIAL_CLAIMS);
-      }
+      // 3. Claims (synchronized with cloud reset)
+      const allClaims = await fetchSynchronizedClaims();
       setClaims(allClaims);
 
       // 4. Correspondents

@@ -19,7 +19,8 @@ import {
   Download,
   FileText,
   Clock,
-  UploadCloud
+  UploadCloud,
+  Trash2
 } from "lucide-react";
 import { doc, getDocs, collection, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
@@ -28,9 +29,10 @@ import RichTextEditor from "../../components/RichTextEditor";
 import RichText from "../../components/RichText";
 import { openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/mediaHelper";
 import {
-  loadStoredData, saveStoredData, INITIAL_SUBMISSIONS, DEFAULT_RATES,
+  loadStoredData, saveStoredData, DEFAULT_RATES,
   INITIAL_CORRESPONDENTS, INITIAL_ASSIGNMENTS,
-  calculatePaymentForPlatforms, parseBankDetails
+  calculatePaymentForPlatforms, parseBankDetails,
+  fetchSynchronizedSubmissions, deleteSubmission
 } from "../../lib/dataStore";
 import { sendEditorialReviewDecisionEmail } from "../../lib/emailService";
 import type { AppUser, Assignment, Correspondent, MediaFile, Platform, RateCardEntry, Submission } from "../../types";
@@ -78,26 +80,8 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Load Submissions (merge localStorage and Firestore)
-      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
-      const subMap = new Map<string, Submission>();
-      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
-      try {
-        const snap = await getDocs(collection(db, "submissions"));
-        snap.forEach((d) => {
-          const s = d.data() as Submission;
-          if (s && (s.id || d.id)) {
-            const id = s.id || d.id;
-            const existing = subMap.get(id);
-            subMap.set(id, { ...existing, ...s, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore submissions lookup notice:", fsErr);
-      }
-      const allSubs = Array.from(subMap.values());
-      saveStoredData("byline_submissions_v1", allSubs);
-
+      // 1. Load Submissions (synchronized with cloud reset)
+      const allSubs = await fetchSynchronizedSubmissions();
       allSubs.sort((a, b) => {
         const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
         const timeB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
@@ -348,6 +332,23 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
     }
     return true;
   });
+
+  const handleDeleteStory = async (subId: string) => {
+    if (!window.confirm("Are you sure you want to permanently delete this story filing? This cannot be undone.")) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await deleteSubmission(subId);
+      setActionMessage(res.message);
+      setSelectedSub(null);
+      await loadData();
+    } catch (err: any) {
+      setActionMessage(err?.message || "Failed to delete submission");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const pendingCount = submissions.filter((s) => s.status === "pending_review").length;
   const approvedCount = submissions.filter((s) => s.status === "approved").length;
@@ -882,6 +883,17 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
                   >
                     <XCircle className="w-4 h-4" />
                     <span>Decline Story</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => handleDeleteStory(selectedSub.id)}
+                    className="bg-gray-100 hover:bg-rose-50 text-rose-700 hover:text-rose-800 border border-gray-200 hover:border-rose-300 disabled:opacity-50 text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer sm:ml-auto"
+                    title="Permanently delete this filing"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                    <span>Delete Story</span>
                   </button>
                 </div>
               </div>

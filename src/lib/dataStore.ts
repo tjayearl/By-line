@@ -1,4 +1,4 @@
-import { collection, getDocs, deleteDoc, updateDoc, doc } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, updateDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import type { Assignment, Correspondent, PaymentClaim, Platform, RateCardEntry, Submission } from "../types";
 
@@ -202,56 +202,315 @@ export function calculatePaymentForPlatforms(platforms: Platform[], rates: RateC
 }
 
 /**
+ * Checks Firestore system/stories_reset to ensure local cache stays in sync with any global reset.
+ * If a cloud reset occurred after the client's local cache timestamp, purges local cache immediately.
+ */
+export async function checkAndSyncStoriesReset(): Promise<string | null> {
+  try {
+    const snap = await getDoc(doc(db, "system", "stories_reset"));
+    if (snap.exists()) {
+      const data = snap.data();
+      const cloudResetAt = data?.resetAt as string | undefined;
+      if (cloudResetAt) {
+        const localResetAt = localStorage.getItem("byline_last_stories_reset");
+        const cloudTime = new Date(cloudResetAt).getTime();
+        const localTime = localResetAt ? new Date(localResetAt).getTime() : 0;
+
+        if (isNaN(localTime) || cloudTime > localTime) {
+          console.info("Global stories reset detected from cloud. Purging local story cache:", cloudResetAt);
+          localStorage.setItem("byline_assignments_v1", "[]");
+          localStorage.setItem("byline_submissions_v1", "[]");
+          localStorage.setItem("byline_claims_v1", "[]");
+          localStorage.setItem("byline_last_stories_reset", cloudResetAt);
+          try {
+            window.dispatchEvent(new Event("storage"));
+            window.dispatchEvent(new CustomEvent("byline:data_updated"));
+          } catch {}
+        }
+        return cloudResetAt;
+      }
+    }
+  } catch (err) {
+    console.warn("Could not check system/stories_reset in Firestore:", err);
+  }
+  return localStorage.getItem("byline_last_stories_reset");
+}
+
+/**
+ * Fetches all submissions in sync with the newsroom reset state.
+ * Prevents deleted submissions from resurrecting via stale localStorage.
+ */
+export async function fetchSynchronizedSubmissions(): Promise<Submission[]> {
+  const resetAt = await checkAndSyncStoriesReset();
+  const resetTime = resetAt ? new Date(resetAt).getTime() : 0;
+
+  try {
+    const snap = await getDocs(collection(db, "submissions"));
+    const list: Submission[] = [];
+
+    for (const d of snap.docs) {
+      const data = d.data() as Submission;
+      if (data && (data.id || d.id)) {
+        const id = data.id || d.id;
+        const rawDate = data.submittedAt || data.publishedAt;
+        const subTime = rawDate ? new Date(rawDate).getTime() : 0;
+        if (resetTime > 0 && subTime > 0 && subTime < resetTime) {
+          // Stale submission from before the reset; delete it from Firestore if possible and skip
+          try { deleteDoc(doc(db, "submissions", d.id)); } catch {}
+          continue;
+        }
+        list.push({ ...data, id });
+      }
+    }
+
+    saveStoredData("byline_submissions_v1", list);
+    return list;
+  } catch (err) {
+    console.warn("Firestore submissions query fallback:", err);
+    const local = loadStoredData<Submission[]>("byline_submissions_v1", []);
+    if (resetTime > 0) {
+      const filtered = local.filter((s) => {
+        const rawDate = s.submittedAt || s.publishedAt;
+        const subTime = rawDate ? new Date(rawDate).getTime() : 0;
+        return subTime === 0 || subTime >= resetTime;
+      });
+      saveStoredData("byline_submissions_v1", filtered);
+      return filtered;
+    }
+    return local;
+  }
+}
+
+/**
+ * Fetches all assignments in sync with the newsroom reset state.
+ */
+export async function fetchSynchronizedAssignments(): Promise<Assignment[]> {
+  const resetAt = await checkAndSyncStoriesReset();
+  const resetTime = resetAt ? new Date(resetAt).getTime() : 0;
+
+  try {
+    const snap = await getDocs(collection(db, "assignments"));
+    const list: Assignment[] = [];
+
+    for (const d of snap.docs) {
+      const data = d.data() as Assignment;
+      if (data && (data.id || d.id)) {
+        const id = data.id || d.id;
+        const rawDate = data.createdAt;
+        const asgTime = rawDate ? new Date(rawDate).getTime() : 0;
+        if (resetTime > 0 && asgTime > 0 && asgTime < resetTime) {
+          try { deleteDoc(doc(db, "assignments", d.id)); } catch {}
+          continue;
+        }
+        list.push({ ...data, id });
+      }
+    }
+
+    saveStoredData("byline_assignments_v1", list);
+    return list;
+  } catch (err) {
+    console.warn("Firestore assignments query fallback:", err);
+    const local = loadStoredData<Assignment[]>("byline_assignments_v1", []);
+    if (resetTime > 0) {
+      const filtered = local.filter((a) => {
+        const rawDate = a.createdAt;
+        const asgTime = rawDate ? new Date(rawDate).getTime() : 0;
+        return asgTime === 0 || asgTime >= resetTime;
+      });
+      saveStoredData("byline_assignments_v1", filtered);
+      return filtered;
+    }
+    return local;
+  }
+}
+
+/**
+ * Fetches all payment claims in sync with the newsroom reset state.
+ */
+export async function fetchSynchronizedClaims(): Promise<PaymentClaim[]> {
+  const resetAt = await checkAndSyncStoriesReset();
+  const resetTime = resetAt ? new Date(resetAt).getTime() : 0;
+
+  try {
+    const snap = await getDocs(collection(db, "claims"));
+    const list: PaymentClaim[] = [];
+
+    for (const d of snap.docs) {
+      const data = d.data() as PaymentClaim;
+      if (data && (data.id || d.id)) {
+        const id = data.id || d.id;
+        const rawDate = data.createdAt;
+        const claimTime = rawDate ? new Date(rawDate).getTime() : 0;
+        if (resetTime > 0 && claimTime > 0 && claimTime < resetTime) {
+          try { deleteDoc(doc(db, "claims", d.id)); } catch {}
+          continue;
+        }
+        list.push({ ...data, id });
+      }
+    }
+
+    saveStoredData("byline_claims_v1", list);
+    return list;
+  } catch (err) {
+    console.warn("Firestore claims query fallback:", err);
+    const local = loadStoredData<PaymentClaim[]>("byline_claims_v1", []);
+    if (resetTime > 0) {
+      const filtered = local.filter((c) => {
+        const rawDate = c.createdAt;
+        const claimTime = rawDate ? new Date(rawDate).getTime() : 0;
+        return claimTime === 0 || claimTime >= resetTime;
+      });
+      saveStoredData("byline_claims_v1", filtered);
+      return filtered;
+    }
+    return local;
+  }
+}
+
+/**
  * Wipes all assignments, submissions, and claims from both local cache and Firestore
  * to give the newsroom a completely fresh start.
+ * Also records a global reset tombstone in Firestore `system/stories_reset` so that ALL
+ * browsers, devices, correspondents, and editors immediately purge their local caches.
  */
-export async function clearAllStoriesData(): Promise<{ success: boolean; message: string }> {
+export async function clearAllStoriesData(resetBy?: string): Promise<{
+  success: boolean;
+  message: string;
+  details?: { submissions: number; assignments: number; claims: number };
+}> {
   try {
-    // 1. Reset Local Storage
+    const nowIso = new Date().toISOString();
+    const nowEpoch = Date.now();
+
+    // 1. Reset Local Storage immediately on this client
     localStorage.setItem("byline_assignments_v1", "[]");
     localStorage.setItem("byline_submissions_v1", "[]");
     localStorage.setItem("byline_claims_v1", "[]");
+    localStorage.setItem("byline_last_stories_reset", nowIso);
 
-    // 2. Clear Firestore assignments
+    // 2. Persist global reset marker to Firestore system/stories_reset so ALL clients sync immediately
+    try {
+      await setDoc(doc(db, "system", "stories_reset"), {
+        resetAt: nowIso,
+        resetTimestamp: nowEpoch,
+        resetBy: resetBy || "Super Admin",
+      }, { merge: true });
+    } catch (fsMarkerErr) {
+      console.warn("Firestore system/stories_reset write warning:", fsMarkerErr);
+    }
+
+    // 3. Clear Firestore assignments
+    let deletedAsgs = 0;
     try {
       const asgSnap = await getDocs(collection(db, "assignments"));
       for (const d of asgSnap.docs) {
-        await deleteDoc(doc(db, "assignments", d.id));
+        try {
+          await deleteDoc(doc(db, "assignments", d.id));
+          deletedAsgs++;
+        } catch {}
       }
     } catch (e) {
       console.warn("Firestore delete assignments notice:", e);
     }
 
-    // 3. Clear Firestore submissions
+    // 4. Clear Firestore submissions
+    let deletedSubs = 0;
     try {
       const subSnap = await getDocs(collection(db, "submissions"));
       for (const d of subSnap.docs) {
-        await deleteDoc(doc(db, "submissions", d.id));
+        try {
+          await deleteDoc(doc(db, "submissions", d.id));
+          deletedSubs++;
+        } catch {}
       }
     } catch (e) {
       console.warn("Firestore delete submissions notice:", e);
     }
 
-    // 4. Clear Firestore claims
+    // 5. Clear Firestore claims
+    let deletedClaims = 0;
     try {
       const claimSnap = await getDocs(collection(db, "claims"));
       for (const d of claimSnap.docs) {
-        await deleteDoc(doc(db, "claims", d.id));
+        try {
+          await deleteDoc(doc(db, "claims", d.id));
+          deletedClaims++;
+        } catch {}
       }
     } catch (e) {
       console.warn("Firestore delete claims notice:", e);
     }
 
-    // 5. Broadcast updates
+    // 6. Broadcast updates across tabs and windows
     try {
       window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new CustomEvent("byline:data_updated"));
     } catch {}
 
-    return { success: true, message: "All stories, assignments, filings, and claims deleted successfully. Clean slate active." };
+    return {
+      success: true,
+      message: `Newsroom clean slate active: purged ${deletedSubs} submissions, ${deletedAsgs} assignments, and ${deletedClaims} claims. Global reset marker registered at ${nowIso}.`,
+      details: {
+        submissions: deletedSubs,
+        assignments: deletedAsgs,
+        claims: deletedClaims,
+      },
+    };
   } catch (err: any) {
     console.error("Error clearing story data:", err);
     return { success: false, message: err?.message || "Failed to clear story data." };
+  }
+}
+
+/**
+ * Gets live statistics of current stories, filings, assignments, and claims in the newsroom.
+ */
+export async function getNewsroomStoriesStats(): Promise<{
+  submissionsCount: number;
+  assignmentsCount: number;
+  claimsCount: number;
+  lastResetAt: string | null;
+}> {
+  const resetAt = await checkAndSyncStoriesReset();
+  const subs = await fetchSynchronizedSubmissions();
+  const asgs = await fetchSynchronizedAssignments();
+  const claims = await fetchSynchronizedClaims();
+
+  return {
+    submissionsCount: subs.length,
+    assignmentsCount: asgs.length,
+    claimsCount: claims.length,
+    lastResetAt: resetAt,
+  };
+}
+
+/**
+ * Permanently deletes an individual submission from both Firestore and local storage.
+ */
+export async function deleteSubmission(subId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    try {
+      await deleteDoc(doc(db, "submissions", subId));
+    } catch (e) {
+      console.warn("Firestore delete submission notice:", e);
+    }
+
+    const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", []);
+    const updatedSubs = localSubs.filter((s) => s.id !== subId);
+    saveStoredData("byline_submissions_v1", updatedSubs);
+
+    try {
+      window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("byline:data_updated"));
+    } catch {}
+
+    return {
+      success: true,
+      message: `Submission [${subId}] permanently deleted.`,
+    };
+  } catch (err: any) {
+    console.error("Error deleting submission:", err);
+    return { success: false, message: err?.message || "Failed to delete submission." };
   }
 }
 

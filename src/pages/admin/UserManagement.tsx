@@ -8,7 +8,10 @@ import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from "firebase/fi
 import { updateProfile } from "firebase/auth";
 import { auth, db, createSecondaryUser } from "../../lib/firebase";
 import { sendUserWelcomeAndActivationEmail, resendAccountActivation } from "../../lib/emailService";
-import { loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS, formatBankDetails, parseBankDetails, POPULAR_KENYAN_BANKS } from "../../lib/dataStore";
+import {
+  loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS, formatBankDetails,
+  parseBankDetails, POPULAR_KENYAN_BANKS, clearAllStoriesData, getNewsroomStoriesStats
+} from "../../lib/dataStore";
 import { usersList } from "../../data/mockData";
 import type { Role, SystemUser, Correspondent } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -97,6 +100,45 @@ export default function UserManagement() {
 
   const [formLoading, setFormLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Newsroom Stories Reset State
+  const [storiesStats, setStoriesStats] = useState<{
+    submissionsCount: number;
+    assignmentsCount: number;
+    claimsCount: number;
+    lastResetAt: string | null;
+  } | null>(null);
+  const [showResetStoriesModal, setShowResetStoriesModal] = useState(false);
+  const [isResettingStories, setIsResettingStories] = useState(false);
+
+  const fetchStats = async () => {
+    try {
+      const stats = await getNewsroomStoriesStats();
+      setStoriesStats(stats);
+    } catch (e) {
+      console.warn("Could not fetch stories stats:", e);
+    }
+  };
+
+  const handleExecuteResetStories = async () => {
+    setIsResettingStories(true);
+    try {
+      const res = await clearAllStoriesData(user?.email || "Super Admin");
+      setMessage({
+        type: res.success ? "success" : "error",
+        text: res.message,
+      });
+      await fetchStats();
+      setShowResetStoriesModal(false);
+    } catch (err: any) {
+      setMessage({
+        type: "error",
+        text: err?.message || "Failed to reset stories",
+      });
+    } finally {
+      setIsResettingStories(false);
+    }
+  };
 
   // Load all users from Firestore + Mock Data + Correspondents Store
   const fetchAllUsers = async () => {
@@ -206,6 +248,7 @@ export default function UserManagement() {
       }
 
       setUsers(Array.from(userMap.values()));
+      await fetchStats();
     } catch (err) {
       console.error("Error loading users:", err);
     } finally {
@@ -681,6 +724,18 @@ export default function UserManagement() {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => {
+              setShowResetStoriesModal(true);
+              fetchStats();
+            }}
+            className="p-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-400/40 rounded-xl transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+            title="Start Afresh: Wipe all story submissions, assignments, and claims"
+          >
+            <Trash2 className="w-4 h-4 text-rose-300" />
+            <span className="hidden sm:inline">Start Afresh</span>
+          </button>
+
+          <button
             onClick={() => fetchAllUsers()}
             disabled={refreshing}
             className="p-2.5 bg-blue-900/60 hover:bg-blue-900 text-blue-200 rounded-xl transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
@@ -764,6 +819,37 @@ export default function UserManagement() {
             <Building2 className="w-5 h-5" />
           </div>
         </div>
+      </div>
+
+      {/* Newsroom Story Submissions & Clean Slate Control Panel */}
+      <div className="bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-2xl p-5 border border-slate-700 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              Newsroom Clean Slate
+            </span>
+            {storiesStats?.lastResetAt && (
+              <span className="text-[11px] text-slate-400">
+                Last reset: {new Date(storiesStats.lastResetAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          <h3 className="text-base font-bold text-white">Story Submissions, Filings & Claims Control</h3>
+          <p className="text-xs text-slate-300">
+            Active in system: <span className="font-bold text-brand-gold">{storiesStats ? storiesStats.submissionsCount : "..."}</span> story submissions &bull; <span className="font-bold text-brand-gold">{storiesStats ? storiesStats.assignmentsCount : "..."}</span> assignments &bull; <span className="font-bold text-brand-gold">{storiesStats ? storiesStats.claimsCount : "..."}</span> claims.
+          </p>
+        </div>
+
+        <button
+          onClick={() => {
+            setShowResetStoriesModal(true);
+            fetchStats();
+          }}
+          className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition cursor-pointer shadow-xs self-stretch md:self-auto justify-center"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Start Afresh (Purge All Submissions)</span>
+        </button>
       </div>
 
       {/* Main Content Area */}
@@ -1332,6 +1418,88 @@ export default function UserManagement() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Start Afresh / Reset Stories */}
+      {showResetStoriesModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-rose-900 text-white px-6 py-4 flex items-center justify-between border-b-2 border-rose-500">
+              <div className="flex items-center gap-2 font-bold text-lg">
+                <Trash2 className="w-5 h-5 text-rose-300" />
+                <span>Reset Newsroom Stories & Start Afresh</span>
+              </div>
+              <button
+                onClick={() => setShowResetStoriesModal(false)}
+                className="text-rose-200 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 leading-relaxed">
+                <p className="font-bold mb-1">Warning: Irreversible Newsroom Action</p>
+                <p>
+                  This action will permanently delete all <strong>story submissions</strong>, <strong>commissioned assignments</strong>, and <strong>payment claims</strong> from both Firestore and local caches across all correspondent and managing editor accounts.
+                </p>
+                <p className="mt-2 text-rose-800">
+                  A cloud reset marker will be broadcast so that all correspondents and editors logging in on any browser or device will immediately have their past submissions purged.
+                </p>
+              </div>
+
+              {storiesStats && (
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                    <p className="text-[10px] text-gray-500 font-bold uppercase">Submissions</p>
+                    <p className="text-lg font-black text-slate-800 mt-0.5">{storiesStats.submissionsCount}</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                    <p className="text-[10px] text-gray-500 font-bold uppercase">Assignments</p>
+                    <p className="text-lg font-black text-slate-800 mt-0.5">{storiesStats.assignmentsCount}</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                    <p className="text-[10px] text-gray-500 font-bold uppercase">Claims</p>
+                    <p className="text-lg font-black text-slate-800 mt-0.5">{storiesStats.claimsCount}</p>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-600">
+                User accounts (Super Admins, Editors, Correspondents) and the published Rate Card will <strong>NOT</strong> be deleted.
+              </p>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setShowResetStoriesModal(false)}
+                  disabled={isResettingStories}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteResetStories}
+                  disabled={isResettingStories}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-5 py-2 text-xs rounded-xl shadow transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isResettingStories ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Wiping Newsroom Stories...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Confirm & Start Afresh</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -15,11 +15,11 @@ import { db } from "../../lib/firebase";
 import { 
   loadStoredData, 
   saveStoredData, 
-  INITIAL_SUBMISSIONS, 
-  INITIAL_CLAIMS, 
   INITIAL_CORRESPONDENTS,
   formatBankDetails, 
-  parseBankDetails 
+  parseBankDetails,
+  fetchSynchronizedSubmissions,
+  fetchSynchronizedClaims
 } from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
 import { 
@@ -113,44 +113,12 @@ export default function PaymentReport() {
   const userEmailLower = (user?.email || "").toLowerCase().trim();
 
   const loadAllData = async () => {
-    // 1. Submissions
-    const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
-    const subMap = new Map<string, Submission>();
-    localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
-    try {
-      const subSnap = await getDocs(collection(db, "submissions"));
-      subSnap.forEach((d) => {
-        const s = d.data() as Submission;
-        if (s && (s.id || d.id)) {
-          const id = s.id || d.id;
-          const existing = subMap.get(id);
-          subMap.set(id, { ...existing, ...s, id });
-        }
-      });
-    } catch (fsErr) {
-      console.warn("Firestore subs notice in PaymentReport:", fsErr);
-    }
-    const allSubs = Array.from(subMap.values());
+    // 1. Submissions (synchronized with cloud reset)
+    const allSubs = await fetchSynchronizedSubmissions();
     setSubmissions(allSubs);
 
-    // 2. Claims
-    const localClaims = loadStoredData<PaymentClaim[]>("byline_claims_v1", INITIAL_CLAIMS);
-    const claimMap = new Map<string, PaymentClaim>();
-    localClaims.forEach((c) => { if (c && c.id) claimMap.set(c.id, c); });
-    try {
-      const claimSnap = await getDocs(collection(db, "claims"));
-      claimSnap.forEach((d) => {
-        const c = d.data() as PaymentClaim;
-        if (c && (c.id || d.id)) {
-          const id = c.id || d.id;
-          const existing = claimMap.get(id);
-          claimMap.set(id, { ...existing, ...c, id });
-        }
-      });
-    } catch (fsErr) {
-      console.warn("Firestore claims notice in PaymentReport:", fsErr);
-    }
-    const allClaims = Array.from(claimMap.values());
+    // 2. Claims (synchronized with cloud reset)
+    const allClaims = await fetchSynchronizedClaims();
     setClaims(allClaims);
 
     // 3. Correspondents

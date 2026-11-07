@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Clock, UploadCloud, ArrowRight, RefreshCw, FileText, CheckCircle2, AlertCircle, Edit3, Trash2, Lock, AlertTriangle, X, DollarSign } from "lucide-react";
 import RichText from "../../components/RichText";
-import { getDocs, collection } from "firebase/firestore";
-import { db } from "../../lib/firebase";
-import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_SUBMISSIONS, withdrawStoryFiling } from "../../lib/dataStore";
+import {
+  withdrawStoryFiling, fetchSynchronizedAssignments, fetchSynchronizedSubmissions
+} from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
 import type { Assignment, Submission } from "../../types";
 
@@ -20,46 +20,12 @@ export default function CorrespondentDashboard() {
   const fetchAssignments = async () => {
     setLoading(true);
     try {
-      // 1. Assignments (merge localStorage and Firestore)
-      const localAsgs = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
-      const asgMap = new Map<string, Assignment>();
-      localAsgs.forEach((a) => { if (a && a.id) asgMap.set(a.id, a); });
-      try {
-        const snap = await getDocs(collection(db, "assignments"));
-        snap.forEach((d) => {
-          const data = d.data() as Assignment;
-          if (data && (data.id || d.id)) {
-            const id = data.id || d.id;
-            const existing = asgMap.get(id);
-            asgMap.set(id, { ...existing, ...data, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore assignments fetch notice:", fsErr);
-      }
-      const allAsg = Array.from(asgMap.values());
-      saveStoredData("byline_assignments_v1", allAsg);
+      // 1. Assignments (synchronized with cloud reset)
+      const allAsg = await fetchSynchronizedAssignments();
       setAssignments(allAsg);
 
-      // 2. Submissions (merge localStorage and Firestore)
-      const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
-      const subMap = new Map<string, Submission>();
-      localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
-      try {
-        const subSnap = await getDocs(collection(db, "submissions"));
-        subSnap.forEach((d) => {
-          const s = d.data() as Submission;
-          if (s && (s.id || d.id)) {
-            const id = s.id || d.id;
-            const existing = subMap.get(id);
-            subMap.set(id, { ...existing, ...s, id });
-          }
-        });
-      } catch (fsErr) {
-        console.warn("Firestore submissions fetch notice:", fsErr);
-      }
-      const allSubs = Array.from(subMap.values());
-      saveStoredData("byline_submissions_v1", allSubs);
+      // 2. Submissions (synchronized with cloud reset)
+      const allSubs = await fetchSynchronizedSubmissions();
       setSubmissions(allSubs);
     } catch (err) {
       console.error("Error loading assignments:", err);

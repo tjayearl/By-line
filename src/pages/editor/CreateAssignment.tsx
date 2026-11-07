@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import { FilePlus, Send, RefreshCw, CheckCircle2, AlertCircle, Trash2, AlertTriangle, X } from "lucide-react";
 import { doc, getDocs, collection, setDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { loadStoredData, saveStoredData, INITIAL_ASSIGNMENTS, INITIAL_CORRESPONDENTS, deleteAssignment, parseBankDetails } from "../../lib/dataStore";
+import {
+  loadStoredData, saveStoredData, INITIAL_CORRESPONDENTS,
+  deleteAssignment, parseBankDetails, fetchSynchronizedAssignments
+} from "../../lib/dataStore";
 import { sendAssignmentCommissionEmail } from "../../lib/emailService";
 import type { Assignment, Correspondent, Platform } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -86,23 +89,8 @@ export default function CreateAssignment() {
         setForm((prev) => ({ ...prev, correspondentId: mergedCorrs[0].id }));
       }
 
-      // 2. Load Assignments (Firestore authoritative)
-      let mergedAsg: Assignment[] = [];
-      try {
-        const asgSnap = await getDocs(collection(db, "assignments"));
-        const fsAsgs: Assignment[] = [];
-        asgSnap.forEach((d) => {
-          const a = d.data() as Assignment;
-          if (a && (a.id || d.id)) {
-            fsAsgs.push({ ...a, id: a.id || d.id });
-          }
-        });
-        mergedAsg = fsAsgs;
-        saveStoredData("byline_assignments_v1", fsAsgs);
-      } catch (fsAsgErr) {
-        console.warn("Firestore assignments lookup notice:", fsAsgErr);
-        mergedAsg = loadStoredData<Assignment[]>("byline_assignments_v1", INITIAL_ASSIGNMENTS);
-      }
+      // 2. Load Assignments (synchronized with cloud reset)
+      const mergedAsg = await fetchSynchronizedAssignments();
       setAssignments(mergedAsg);
     } catch (err) {
       console.error("Error loading assignment data:", err);

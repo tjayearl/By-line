@@ -23,8 +23,8 @@ import { getDocs, collection } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { 
   loadStoredData, 
-  INITIAL_SUBMISSIONS, 
-  INITIAL_CORRESPONDENTS 
+  INITIAL_CORRESPONDENTS,
+  fetchSynchronizedSubmissions
 } from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
 import { 
@@ -130,24 +130,9 @@ export default function StoriesReport() {
   const userEmailLower = (user?.email || "").toLowerCase().trim();
 
   const loadData = async () => {
-    // 1. Submissions
-    const localSubs = loadStoredData<Submission[]>("byline_submissions_v1", INITIAL_SUBMISSIONS);
-    const subMap = new Map<string, Submission>();
-    localSubs.forEach((s) => { if (s && s.id) subMap.set(s.id, s); });
-    try {
-      const subSnap = await getDocs(collection(db, "submissions"));
-      subSnap.forEach((d) => {
-        const s = d.data() as Submission;
-        if (s && (s.id || d.id)) {
-          const id = s.id || d.id;
-          const existing = subMap.get(id);
-          subMap.set(id, { ...existing, ...s, id });
-        }
-      });
-    } catch (fsErr) {
-      console.warn("Firestore subs notice in StoriesReport:", fsErr);
-    }
-    setSubmissions(Array.from(subMap.values()));
+    // 1. Submissions (synchronized with cloud reset)
+    const allSubs = await fetchSynchronizedSubmissions();
+    setSubmissions(allSubs);
 
     // 2. Correspondents
     const corrMap = new Map<string, Correspondent>();

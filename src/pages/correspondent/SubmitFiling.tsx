@@ -32,9 +32,10 @@ import { Navigate, useSearchParams, Link } from "react-router-dom";
 import type { Assignment, MediaFile, Submission } from "../../types";
 import MediaPreviewModal from "../../components/MediaPreviewModal";
 import { extractTextFromPdfFile } from "../../lib/pdfTextExtractor";
+import { extractTextFromDocxFile } from "../../lib/docxExtractor";
 import RichTextEditor from "../../components/RichTextEditor";
 import { plainTextToHtml, isRichTextEmpty, toSafeHtml } from "../../lib/richText";
-import { readFileAsBase64, openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/mediaHelper";
+import { readFileAsBase64, downloadMediaSafely, isPdfFile, isWordFile } from "../../lib/mediaHelper";
 
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes === 0) return "0 B";
@@ -80,6 +81,8 @@ export default function SubmitFiling() {
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [pdfExtracts, setPdfExtracts] = useState<{ name: string; text: string }[]>([]);
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
+  const [docxExtracts, setDocxExtracts] = useState<{ name: string; html: string; plainText: string; wordCount: number }[]>([]);
+  const [isExtractingDocx, setIsExtractingDocx] = useState(false);
   const [wetransferUrl, setWetransferUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -97,6 +100,8 @@ export default function SubmitFiling() {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const wordDocInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const generalInputRef = useRef<HTMLInputElement>(null);
 
 
@@ -124,6 +129,8 @@ export default function SubmitFiling() {
     setStoryHeadline("");
     setTextContent("");
     setMediaFiles([]);
+    setPdfExtracts([]);
+    setDocxExtracts([]);
     setWetransferUrl("");
     setProofUrl("");
     setYoutubeUrl("");
@@ -312,9 +319,123 @@ export default function SubmitFiling() {
         setPdfExtracts((prev) => [...prev.filter((p) => !results.some((r) => r.name === p.name)), ...results]);
         setIsExtractingPdf(false);
       }
+
+      const docxFiles = fileArray.filter((f) => f.name.toLowerCase().endsWith(".docx"));
+      if (docxFiles.length > 0) {
+        setIsExtractingDocx(true);
+        const results: { name: string; html: string; plainText: string; wordCount: number }[] = [];
+        for (const docx of docxFiles) {
+          try {
+            const res = await extractTextFromDocxFile(docx);
+            if (res.html.trim()) {
+              results.push({ name: docx.name, ...res });
+            }
+          } catch (docxErr) {
+            console.warn("DOCX text extraction notice:", docxErr);
+          }
+        }
+        if (results.length > 0) {
+          setDocxExtracts((prev) => [...prev.filter((p) => !results.some((r) => r.name === p.name)), ...results]);
+          if (isRichTextEmpty(textContent) && results[0]) {
+            setTextContent(results[0].html);
+          }
+        }
+        setIsExtractingDocx(false);
+      }
     } catch (err: any) {
       console.error("File selection error:", err);
       setErrorMessage(`Failed to attach files: ${err?.message || "Please try again."}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleWordDocUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+
+    setIsUploading(true);
+    setErrorMessage(null);
+
+    try {
+      // 1. Attach file to submission
+      const uploadedFile = await uploadSingleFile(file, "document");
+      setMediaFiles((prev) => [...prev, uploadedFile]);
+
+      // 2. Extract formatted text if .docx
+      const isDocx = file.name.toLowerCase().endsWith(".docx");
+      if (isDocx) {
+        setIsExtractingDocx(true);
+        try {
+          const result = await extractTextFromDocxFile(file);
+          if (result.html.trim()) {
+            if (isRichTextEmpty(textContent)) {
+              setTextContent(result.html);
+              setMessage(`Extracted and loaded story from "${file.name}" (${result.wordCount.toLocaleString()} words). Document also attached.`);
+            } else {
+              setDocxExtracts((prev) => [
+                ...prev.filter((p) => p.name !== file.name),
+                { name: file.name, ...result },
+              ]);
+              setMessage(`Extracted text from "${file.name}". Choose "Load into story" or "Append to story" below.`);
+            }
+          } else {
+            setMessage(`Attached "${file.name}". No readable text detected in document.`);
+          }
+        } catch (docxErr) {
+          console.warn("DOCX extraction error:", docxErr);
+          setMessage(`Attached "${file.name}". Could not parse document formatting automatically.`);
+        } finally {
+          setIsExtractingDocx(false);
+        }
+      } else {
+        setMessage(`Attached "${file.name}". Note: Automatic formatting conversion is supported for .docx files.`);
+      }
+    } catch (err: any) {
+      console.error("Word doc upload error:", err);
+      setErrorMessage(`Failed to attach Word document: ${err?.message || "Please try again."}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handlePdfUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+
+    setIsUploading(true);
+    setErrorMessage(null);
+
+    try {
+      const uploadedFile = await uploadSingleFile(file, "document");
+      setMediaFiles((prev) => [...prev, uploadedFile]);
+
+      setIsExtractingPdf(true);
+      try {
+        const text = await extractTextFromPdfFile(file);
+        if (text.trim()) {
+          if (isRichTextEmpty(textContent)) {
+            setTextContent(plainTextToHtml(text));
+            setMessage(`Extracted and loaded story from "${file.name}" (${text.length.toLocaleString()} characters). PDF document also attached.`);
+          } else {
+            setPdfExtracts((prev) => [
+              ...prev.filter((p) => p.name !== file.name),
+              { name: file.name, text },
+            ]);
+            setMessage(`Extracted text from "${file.name}". Choose "Load into story" or "Append to story" below.`);
+          }
+        } else {
+          setMessage(`Attached "${file.name}". No selectable text found in PDF (it may be scanned).`);
+        }
+      } catch (pdfErr) {
+        console.warn("PDF extraction error:", pdfErr);
+        setMessage(`Attached "${file.name}". Could not extract text automatically.`);
+      } finally {
+        setIsExtractingPdf(false);
+      }
+    } catch (err: any) {
+      console.error("PDF upload error:", err);
+      setErrorMessage(`Failed to attach PDF: ${err?.message || "Please try again."}`);
     } finally {
       setIsUploading(false);
     }
@@ -671,6 +792,26 @@ export default function SubmitFiling() {
         />
         <input
           type="file"
+          ref={wordDocInputRef}
+          onChange={(e) => {
+            handleWordDocUpload(e.target.files);
+            e.target.value = "";
+          }}
+          accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+          className="hidden"
+        />
+        <input
+          type="file"
+          ref={pdfInputRef}
+          onChange={(e) => {
+            handlePdfUpload(e.target.files);
+            e.target.value = "";
+          }}
+          accept=".pdf,application/pdf"
+          className="hidden"
+        />
+        <input
+          type="file"
           ref={generalInputRef}
           onChange={(e) => {
             handleFilesSelected(e.target.files, "document");
@@ -722,9 +863,41 @@ export default function SubmitFiling() {
 
         {/* Text Story Submission */}
         <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-            Text Story / News Copy Draft
-          </label>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Text Story / News Copy Draft
+              </label>
+              <span className="text-[10px] bg-blue-50 text-brand-navy font-semibold px-2 py-0.5 rounded-full border border-blue-200">
+                Rich Text Editor
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => wordDocInputRef.current?.click()}
+                disabled={loading || isExtractingDocx || isUploading}
+                className="text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                title="Upload and extract story text from a Microsoft Word document (.docx)"
+              >
+                <FileText className="w-3.5 h-3.5 text-blue-600" />
+                <span>Upload Word Doc (.docx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => pdfInputRef.current?.click()}
+                disabled={loading || isExtractingPdf || isUploading}
+                className="text-xs font-bold text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                title="Upload and extract text from a PDF document (.pdf)"
+              >
+                <FileText className="w-3.5 h-3.5 text-rose-600" />
+                <span>Upload PDF (.pdf)</span>
+              </button>
+            </div>
+          </div>
+
           <RichTextEditor
             value={textContent}
             onChange={setTextContent}
@@ -732,24 +905,70 @@ export default function SubmitFiling() {
             minHeight={200}
             placeholder="DATELINE, LOCATION — Enter full written news dispatch, cue sheets, intro, soundbite transcriptions, and reporter sign-off..."
           />
+
+          {isExtractingDocx && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 animate-pulse">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+              <span>Extracting formatted story text from Word document (.docx)...</span>
+            </div>
+          )}
+
+          {docxExtracts.map((d) => (
+            <div key={d.name} className="mt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="text-xs text-slate-700 truncate">
+                  Word doc extracted: <strong className="text-slate-900">{d.name}</strong> ({d.wordCount.toLocaleString()} words)
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTextContent((prev) => toSafeHtml(prev) + d.html)}
+                  className="text-xs font-bold text-blue-900 bg-white hover:bg-blue-100 border border-blue-300 px-2.5 py-1 rounded-lg cursor-pointer transition shadow-2xs"
+                  title="Append to existing text in editor"
+                >
+                  Append to story
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTextContent(d.html)}
+                  className="text-xs font-bold text-white bg-brand-navy hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer transition shadow-xs"
+                  title="Replace editor content with this document"
+                >
+                  Load into story
+                </button>
+              </div>
+            </div>
+          ))}
+
           {isExtractingPdf && (
             <p className="text-xs text-gray-500 mt-2">Extracting text from PDF...</p>
           )}
           {pdfExtracts.map((p) => (
-            <div key={p.name} className="mt-2 flex items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+            <div key={p.name} className="mt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
               <span className="text-xs text-slate-700 truncate">
                 {p.text.trim()
                   ? `Text extracted from ${p.name} (${p.text.length.toLocaleString()} characters)`
                   : `No selectable text found in ${p.name} (it may be a scanned PDF)`}
               </span>
               {p.text.trim() && (
-                <button
-                  type="button"
-                  onClick={() => setTextContent((prev) => toSafeHtml(prev) + plainTextToHtml(p.text))}
-                  className="shrink-0 text-xs font-bold text-white bg-brand-navy hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer"
-                >
-                  Insert into story
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setTextContent((prev) => toSafeHtml(prev) + plainTextToHtml(p.text))}
+                    className="text-xs font-bold text-blue-900 bg-white hover:bg-blue-100 border border-blue-300 px-2.5 py-1 rounded-lg cursor-pointer transition shadow-2xs"
+                  >
+                    Append to story
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTextContent(plainTextToHtml(p.text))}
+                    className="shrink-0 text-xs font-bold text-white bg-brand-navy hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer transition shadow-xs"
+                  >
+                    Load into story
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -941,12 +1160,15 @@ export default function SubmitFiling() {
                 </div>
                 {mediaFiles.map((file, i) => {
                   const isPdf = isPdfFile(file);
+                  const isWord = isWordFile(file);
                   return (
                     <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between text-xs bg-white p-3 rounded-xl border border-gray-200 shadow-xs hover:border-gray-300 transition gap-2">
                       <div className="flex items-center gap-2.5 min-w-0 pr-2">
                         <div className="p-2 rounded-lg bg-gray-100 shrink-0 text-brand-navy">
                           {isPdf ? (
                             <FileText className="w-4 h-4 text-rose-600" />
+                          ) : isWord ? (
+                            <FileText className="w-4 h-4 text-blue-600" />
                           ) : file.type === "audio" ? (
                             <Music className="w-4 h-4 text-blue-600" />
                           ) : file.type === "video" ? (
@@ -963,7 +1185,7 @@ export default function SubmitFiling() {
                           </span>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-gray-500 uppercase bg-gray-100 px-1.5 py-0.5 rounded font-mono">
-                              {isPdf ? "PDF Document" : file.type} &bull; {file.size || "File"}
+                              {isPdf ? "PDF Document" : isWord ? "Word Document" : file.type} &bull; {file.size || "File"}
                             </span>
                             <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 font-bold text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" /> Attached
@@ -975,12 +1197,12 @@ export default function SubmitFiling() {
                       <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100 w-full sm:w-auto justify-end">
                         <button
                           type="button"
-                          onClick={() => openMediaSafely(file)}
+                          onClick={() => setPreviewModalFile(file)}
                           className="bg-brand-navy hover:bg-blue-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                          title={isPdf ? "View PDF in new tab" : "Open file in new tab"}
+                          title="Preview file"
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-brand-gold" />
-                          <span>{isPdf ? "View PDF" : "Open in New Tab"}</span>
+                          <span>Preview</span>
                         </button>
 
                         <button

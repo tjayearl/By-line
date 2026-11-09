@@ -27,7 +27,7 @@ import { db } from "../../lib/firebase";
 import MediaPreviewModal from "../../components/MediaPreviewModal";
 import RichTextEditor from "../../components/RichTextEditor";
 import RichText from "../../components/RichText";
-import { openMediaSafely, downloadMediaSafely, isPdfFile } from "../../lib/mediaHelper";
+import { downloadMediaSafely, isPdfFile, isWordFile } from "../../lib/mediaHelper";
 import {
   loadStoredData, saveStoredData, DEFAULT_RATES,
   INITIAL_CORRESPONDENTS, INITIAL_ASSIGNMENTS,
@@ -623,6 +623,7 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {selectedSub.mediaFiles.map((m, i) => {
                         const isPdf = isPdfFile(m);
+                        const isWord = isWordFile(m);
                         return (
                           <div 
                             key={i} 
@@ -632,6 +633,8 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
                               <div className="p-2 rounded-xl bg-white border border-gray-200 shrink-0 text-brand-navy shadow-xs">
                                 {isPdf ? (
                                   <FileText className="w-4 h-4 text-rose-600" />
+                                ) : isWord ? (
+                                  <FileText className="w-4 h-4 text-blue-600" />
                                 ) : m.type === "audio" ? (
                                   <Music className="w-4 h-4 text-blue-600" />
                                 ) : m.type === "video" ? (
@@ -647,7 +650,7 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
                                   {m.name}
                                 </p>
                                 <p className="text-[10px] text-gray-500 uppercase font-mono mt-0.5">
-                                  {isPdf ? "PDF Document" : m.type} &bull; {m.size || "File"}
+                                  {isPdf ? "PDF Document" : isWord ? "Word Document" : m.type} &bull; {m.size || "File"}
                                 </p>
                               </div>
                             </div>
@@ -655,12 +658,12 @@ function ReviewSubmissionsContent({ user }: { user: AppUser }) {
                             <div className="flex items-center justify-between pt-2 border-t border-gray-200 gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => openMediaSafely(m)}
+                                onClick={() => setPreviewModalFile(m)}
                                 className="flex-1 bg-brand-navy hover:bg-blue-900 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
-                                title={isPdf ? "View PDF in new tab" : "Open file in new tab"}
+                                title="Preview file"
                               >
                                 <ExternalLink className="w-3.5 h-3.5 text-brand-gold" />
-                                <span>{isPdf ? "View PDF" : "Open in New Tab"}</span>
+                                <span>Preview</span>
                               </button>
 
                               <button

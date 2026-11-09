@@ -89,6 +89,28 @@ export function isPdfFile(file: { name?: string; url?: string; dataUrl?: string;
 }
 
 /**
+ * Checks if a file or URL represents a Microsoft Word document (.docx, .doc).
+ */
+export function isWordFile(file: { name?: string; url?: string; dataUrl?: string; type?: string }): boolean {
+  const name = (file.name || "").toLowerCase();
+  const url = (file.url || "").toLowerCase();
+  const dataUrl = (file.dataUrl || "").toLowerCase();
+  const type = (file.type || "").toLowerCase();
+
+  return (
+    name.endsWith(".docx") ||
+    name.endsWith(".doc") ||
+    url.includes(".docx") ||
+    url.includes(".doc") ||
+    dataUrl.startsWith("data:application/vnd.openxmlformats-officedocument.wordprocessingml.document") ||
+    dataUrl.startsWith("data:application/msword") ||
+    type === "docx" ||
+    type === "doc" ||
+    (type === "document" && (name.endsWith(".docx") || name.endsWith(".doc")))
+  );
+}
+
+/**
  * Creates a fresh, valid runtime Blob URL from either a Data URL, regular URL, or text.
  */
 export function getSafePreviewUrl(file: { name?: string; url: string; dataUrl?: string }): {
@@ -151,6 +173,8 @@ export function getFileMimeType(file: { name?: string; url?: string; dataUrl?: s
   if (name.endsWith(".webm")) return "video/webm";
   if (name.endsWith(".mov")) return "video/quicktime";
   if (name.endsWith(".txt")) return "text/plain";
+  if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (name.endsWith(".doc")) return "application/msword";
 
   if (type === "image") return "image/png";
   if (type === "audio") return "audio/mpeg";
@@ -261,7 +285,7 @@ export function openMediaSafely(file: { name?: string; url: string; dataUrl?: st
     newTab.document.body.style.flexDirection = "column";
     newTab.document.body.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
-    let mediaContentHtml = "";
+    let mediaContentHtml: string;
     if (isImage) {
       mediaContentHtml = `
         <div style="flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px;">

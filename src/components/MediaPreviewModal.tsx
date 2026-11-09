@@ -18,8 +18,10 @@ import {
   getSafePreviewUrl, 
   openMediaSafely, 
   downloadMediaSafely, 
-  isPdfFile
+  isPdfFile,
+  isWordFile
 } from "../lib/mediaHelper";
+import { extractDocxFromStoredDoc, type DocxExtractResult } from "../lib/docxExtractor";
 
 interface MediaPreviewModalProps {
   file: MediaFile | null;
@@ -28,20 +30,35 @@ interface MediaPreviewModalProps {
 
 export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalProps) {
   const [zoomLevel, setZoomLevel] = useState(1);
-  const [safeUrl, setSafeUrl] = useState<string>("");
   const [loadError, setLoadError] = useState(false);
+  const [wordExtract, setWordExtract] = useState<DocxExtractResult | null>(null);
+  const [loadingWord, setLoadingWord] = useState(false);
+
+  const safeUrl = file ? getSafePreviewUrl(file).safeUrl : "";
 
   useEffect(() => {
-    if (!file) {
-      setSafeUrl("");
-      setLoadError(false);
-      return;
-    }
+    let isCancelled = false;
 
-    const { safeUrl: generatedUrl } = getSafePreviewUrl(file);
-    setSafeUrl(generatedUrl);
-    setLoadError(false);
-    setZoomLevel(1);
+    if (file && isWordFile(file) && file.name.toLowerCase().endsWith(".docx")) {
+      setLoadingWord(true);
+      extractDocxFromStoredDoc(file)
+        .then((res) => {
+          if (!isCancelled) {
+            setWordExtract(res);
+            setLoadingWord(false);
+          }
+        })
+        .catch((err) => {
+          console.warn("Could not preview docx in modal:", err);
+          if (!isCancelled) {
+            setWordExtract(null);
+            setLoadingWord(false);
+          }
+        });
+    } else {
+      setWordExtract(null);
+      setLoadingWord(false);
+    }
 
     // Escape key listener to close modal
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -50,12 +67,16 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [file, onClose]);
 
   if (!file) return null;
 
   const isPdf = isPdfFile(file);
+  const isWord = isWordFile(file);
   const isImage = file.type === "image" || (!file.type && /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name));
   const isAudio = file.type === "audio" || (!file.type && /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name));
   const isVideo = file.type === "video" || (!file.type && /\.(mp4|mov|avi|webm|mkv)$/i.test(file.name));
@@ -76,11 +97,12 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
         <div className="bg-brand-navy text-white px-4 sm:px-6 py-3.5 flex items-center justify-between border-b-2 border-brand-gold gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-xl bg-blue-900/80 text-brand-gold shrink-0">
-              {isPdf && <FileText className="w-5 h-5" />}
+              {isPdf && <FileText className="w-5 h-5 text-rose-400" />}
+              {isWord && <FileText className="w-5 h-5 text-blue-400" />}
               {isImage && <ImageIcon className="w-5 h-5" />}
               {isAudio && <Music className="w-5 h-5" />}
               {isVideo && <VideoIcon className="w-5 h-5" />}
-              {!isPdf && !isImage && !isAudio && !isVideo && <Paperclip className="w-5 h-5" />}
+              {!isPdf && !isWord && !isImage && !isAudio && !isVideo && <Paperclip className="w-5 h-5" />}
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-sm sm:text-base text-white truncate" title={file.name}>
@@ -88,7 +110,7 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
               </h3>
               <div className="flex items-center gap-2 text-[11px] text-blue-200 mt-0.5">
                 <span className="uppercase font-bold tracking-wider text-brand-gold">
-                  {isPdf ? "PDF Document" : file.type || "Document"}
+                  {isPdf ? "PDF Document" : isWord ? "Word Document" : file.type || "Document"}
                 </span>
                 {file.size && <span>&bull; {file.size}</span>}
               </div>
@@ -253,8 +275,55 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
             </div>
           )}
 
+          {/* Word Document (.docx) Viewer */}
+          {isWord && wordExtract && (
+            <div className="w-full max-w-3xl flex flex-col h-[65vh] bg-white rounded-xl shadow-2xl border border-slate-300 overflow-hidden text-slate-800">
+              <div className="bg-slate-100 px-4 py-2 border-b flex items-center justify-between text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                  <span className="font-semibold text-slate-800">{file.name}</span>
+                  <span>&bull; {wordExtract.wordCount.toLocaleString()} words</span>
+                </div>
+                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
+                  Word Document Preview
+                </span>
+              </div>
+              <div
+                className="flex-1 overflow-y-auto p-6 text-sm leading-relaxed max-w-none bg-white font-serif space-y-3"
+                dangerouslySetInnerHTML={{ __html: wordExtract.html }}
+              />
+            </div>
+          )}
+
+          {isWord && loadingWord && (
+            <div className="p-8 text-center text-slate-300 space-y-3">
+              <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs">Reading Word document contents...</p>
+            </div>
+          )}
+
+          {isWord && !loadingWord && !wordExtract && (
+            <div className="w-full max-w-md p-8 bg-slate-800 rounded-2xl border border-slate-700 text-center space-y-4 shadow-2xl text-white">
+              <FileText className="w-12 h-12 text-blue-400 mx-auto" />
+              <div>
+                <h4 className="font-bold text-base truncate">{file.name}</h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  Microsoft Word Document &bull; {file.size || "File"}
+                </p>
+              </div>
+              <div className="pt-2 flex justify-center gap-3">
+                <button
+                  onClick={handleDownload}
+                  className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <Download className="w-4 h-4" /> Download Word Document
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Generic Document / Fallback */}
-          {!isPdf && !isImage && !isAudio && !isVideo && (
+          {!isPdf && !isWord && !isImage && !isAudio && !isVideo && (
             <div className="w-full max-w-md p-8 bg-slate-800 rounded-2xl border border-slate-700 text-center space-y-4 shadow-2xl text-white">
               <Paperclip className="w-12 h-12 text-brand-gold mx-auto" />
               <div>

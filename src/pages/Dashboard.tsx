@@ -218,9 +218,12 @@ export default function Dashboard() {
   const visibleAssignments = assignments.filter((a) => {
     if (!isCorrespondent) return true;
     const asgEmail = (a.correspondentEmail || "").toLowerCase().trim();
+    const asgCorrId = (a.correspondentId || "").toLowerCase().trim();
+    const userUidLower = (user.uid || "").toLowerCase().trim();
     if (asgEmail && userEmailLower && asgEmail === userEmailLower) return true;
-    if (a.correspondentId && (a.correspondentId === user.uid || a.correspondentId === userEmailLower)) return true;
-    if (a.correspondentName && user.name && a.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
+    if (asgCorrId && (asgCorrId === userUidLower || asgCorrId === userEmailLower)) return true;
+    if (a.correspondentName && user.name && a.correspondentName.trim().toLowerCase() === user.name.trim().toLowerCase()) return true;
+    if (a.correspondentName && userEmailLower && a.correspondentName.trim().toLowerCase() === userEmailLower) return true;
     return false;
   });
 
@@ -237,8 +240,11 @@ export default function Dashboard() {
   // Filter submissions based on user role
   const visibleSubmissions = submissions.filter((sub) => {
     if (isCorrespondent) {
-      if (sub.correspondentId === user.uid || sub.correspondentId === userEmailLower) return true;
-      if (sub.correspondentName && user.name && sub.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
+      const subCorrId = (sub.correspondentId || "").toLowerCase().trim();
+      const userUidLower = (user.uid || "").toLowerCase().trim();
+      if (subCorrId && (subCorrId === userUidLower || subCorrId === userEmailLower)) return true;
+      if (sub.correspondentName && user.name && sub.correspondentName.trim().toLowerCase() === user.name.trim().toLowerCase()) return true;
+      if (sub.correspondentName && userEmailLower && sub.correspondentName.trim().toLowerCase() === userEmailLower) return true;
       return false;
     }
     return true;

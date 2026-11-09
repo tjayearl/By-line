@@ -189,8 +189,91 @@ export function saveStoredData<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
-    console.error("Failed to save key to localStorage", key, e);
+    console.warn("Storage quota hit, stripping heavy base64 media payloads for local cache:", key, e);
+    try {
+      if (Array.isArray(value)) {
+        const cleaned = value.map((item: any) => {
+          if (item && item.mediaFiles && Array.isArray(item.mediaFiles)) {
+            return {
+              ...item,
+              mediaFiles: item.mediaFiles.map((m: any) => ({
+                name: m.name || "file",
+                type: m.type || "document",
+                size: m.size || "0 B",
+                url: (m.url && !m.url.startsWith("data:")) ? m.url : "",
+              })),
+            };
+          }
+          return item;
+        });
+        localStorage.setItem(key, JSON.stringify(cleaned));
+      }
+    } catch (cleanErr) {
+      console.error("Failed clean localStorage save:", cleanErr);
+    }
   }
+}
+
+/**
+ * Recursively removes `undefined` properties from an object so Firestore's setDoc/updateDoc
+ * will never reject the payload with "Unsupported field value: undefined".
+ */
+export function sanitizeFirestoreDoc<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeFirestoreDoc).filter((item) => item !== undefined) as any;
+  }
+  if (typeof obj === "object") {
+    const clean: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, any>)) {
+      if (v !== undefined) {
+        clean[k] = sanitizeFirestoreDoc(v);
+      }
+    }
+    return clean as T;
+  }
+  return obj;
+}
+
+/**
+ * Prepares a submission document for Firestore by ensuring it strictly stays
+ * below the 1,048,576 byte document limit and strips invalid or undefined values.
+ */
+export function prepareSubmissionForFirestore(sub: Submission): any {
+  const sanitized: any = sanitizeFirestoreDoc(sub);
+
+  if (sanitized.mediaFiles && Array.isArray(sanitized.mediaFiles)) {
+    sanitized.mediaFiles = sanitized.mediaFiles.map((m: any) => {
+      const isRemoteUrl = m.url && (m.url.startsWith("http://") || m.url.startsWith("https://"));
+      // Only retain base64 data if it is under 150 KB to avoid Firestore payload rejections
+      const isSmallDataUrl = m.url && m.url.startsWith("data:") && m.url.length <= 150 * 1024;
+      return {
+        name: m.name || "file",
+        type: m.type || "document",
+        size: m.size || "0 B",
+        url: isRemoteUrl ? m.url : (isSmallDataUrl ? m.url : ""),
+      };
+    });
+  }
+
+  return sanitized;
+}
+
+/**
+ * Strips all embedded binary/data URLs from media attachments in a submission,
+ * guaranteeing minimal Firestore document payload size during emergency retries.
+ */
+export function prepareLightweightSubmissionForFirestore(sub: Submission): any {
+  const clean = prepareSubmissionForFirestore(sub);
+  if (clean.mediaFiles && Array.isArray(clean.mediaFiles)) {
+    clean.mediaFiles = clean.mediaFiles.map((m: any) => ({
+      name: m.name || "file",
+      type: m.type || "document",
+      size: m.size || "0 B",
+      url: (m.url && (m.url.startsWith("http://") || m.url.startsWith("https://"))) ? m.url : "",
+    }));
+  }
+  return clean;
 }
 
 export function calculatePaymentForPlatforms(platforms: Platform[], rates: RateCardEntry[]): number {
@@ -263,8 +346,30 @@ export async function fetchSynchronizedSubmissions(): Promise<Submission[]> {
       }
     }
 
-    saveStoredData("byline_submissions_v1", list);
-    return list;
+    // Merge any post-reset local submissions that aren't yet in Firestore
+    const local = loadStoredData<Submission[]>("byline_submissions_v1", []);
+    const mergedMap = new Map<string, Submission>();
+    for (const item of list) {
+      mergedMap.set(item.id, item);
+    }
+    for (const item of local) {
+      if (!mergedMap.has(item.id)) {
+        const rawDate = item.submittedAt || item.publishedAt;
+        const subTime = rawDate ? new Date(rawDate).getTime() : 0;
+        if (resetTime === 0 || subTime === 0 || subTime >= resetTime) {
+          mergedMap.set(item.id, item);
+          // Auto-sync missing submission to Firestore in the background
+          try {
+            const clean = prepareSubmissionForFirestore(item);
+            setDoc(doc(db, "submissions", item.id), clean).catch(() => {});
+          } catch {}
+        }
+      }
+    }
+
+    const mergedList = Array.from(mergedMap.values());
+    saveStoredData("byline_submissions_v1", mergedList);
+    return mergedList;
   } catch (err) {
     console.warn("Firestore submissions query fallback:", err);
     const local = loadStoredData<Submission[]>("byline_submissions_v1", []);

@@ -25,7 +25,8 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage
 import { db, storage } from "../../lib/firebase";
 import {
   loadStoredData, saveStoredData,
-  fetchSynchronizedAssignments, fetchSynchronizedSubmissions
+  fetchSynchronizedAssignments, fetchSynchronizedSubmissions,
+  prepareSubmissionForFirestore, prepareLightweightSubmissionForFirestore
 } from "../../lib/dataStore";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate, useSearchParams, Link } from "react-router-dom";
@@ -45,30 +46,10 @@ function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
-function sanitizeFirestoreDoc<T>(obj: T): T {
-  if (obj === null || obj === undefined) return obj;
-  if (Array.isArray(obj)) {
-    return obj.map(sanitizeFirestoreDoc).filter((item) => item !== undefined) as any;
-  }
-  if (typeof obj === "object") {
-    const clean: any = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (v !== undefined) {
-        clean[k] = sanitizeFirestoreDoc(v);
-      }
-    }
-    return clean;
-  }
-  return obj;
-}
+
 
 export default function SubmitFiling() {
   const { user } = useAuth();
-
-  // Only Correspondents and Super Admin can submit filings
-  if (!user || !["correspondent", "super_admin"].includes(user.role)) {
-    return <Navigate to="/" replace />;
-  }
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -175,7 +156,7 @@ export default function SubmitFiling() {
       }
 
       const matching = allAsg.filter((a) => {
-        if (user.role !== "correspondent") return true;
+        if (!user || user.role !== "correspondent") return true;
         const userEmail = (user.email || "").toLowerCase().trim();
         const asgEmail = (a.correspondentEmail || "").toLowerCase().trim();
         if (asgEmail && userEmail && asgEmail === userEmail) return true;
@@ -197,32 +178,6 @@ export default function SubmitFiling() {
     }
   };
 
-  useEffect(() => {
-    loadData();
-
-    const handleUpdate = () => {
-      loadData();
-    };
-
-    const handleWindowPaste = async (e: ClipboardEvent) => {
-      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
-        // Prevent default paste if files were detected in clipboard
-        e.preventDefault();
-        await handleFilesSelected(e.clipboardData.files, "document");
-      }
-    };
-
-    window.addEventListener("storage", handleUpdate);
-    window.addEventListener("byline:data_updated", handleUpdate);
-    window.addEventListener("paste", handleWindowPaste);
-
-    return () => {
-      window.removeEventListener("storage", handleUpdate);
-      window.removeEventListener("byline:data_updated", handleUpdate);
-      window.removeEventListener("paste", handleWindowPaste);
-    };
-  }, []);
-
   const handleAssignmentChange = (asgId: string) => {
     setSelectedAsgId(asgId);
     if (asgId) {
@@ -241,11 +196,11 @@ export default function SubmitFiling() {
     if (file.type.startsWith("audio/")) resolvedType = "audio";
     else if (file.type.startsWith("video/")) resolvedType = "video";
     else if (file.type.startsWith("image/")) resolvedType = "image";
-    else resolvedType = "document";
+    else if (!resolvedType) resolvedType = "document";
 
-    // 1. Read file as Base64 Data URL (for files <= 4MB) so it is persistent across reloads
+    // 1. Read file as Base64 Data URL (for small files <= 200KB only) to ensure Firestore stays within 1MB limit
     let base64DataUrl = "";
-    if (file.size <= 4 * 1024 * 1024) {
+    if (file.size <= 200 * 1024) {
       try {
         base64DataUrl = await readFileAsBase64(file);
       } catch (readErr) {
@@ -254,7 +209,7 @@ export default function SubmitFiling() {
     }
     const localBlobUrl = URL.createObjectURL(file);
 
-    // 2. Upload to Firebase Storage with a strict 3.5-second timeout
+    // 2. Upload to Firebase Storage with a strict 2.5-second timeout
     try {
       const timestamp = Date.now();
       const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -264,7 +219,7 @@ export default function SubmitFiling() {
       const snapshot = await Promise.race([
         uploadBytes(fileRef, file),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Storage upload timed out")), 3500)
+          setTimeout(() => reject(new Error("Storage upload timed out")), 2500)
         ),
       ]);
       const downloadURL = await getDownloadURL(snapshot.ref);
@@ -277,7 +232,7 @@ export default function SubmitFiling() {
         dataUrl: base64DataUrl || undefined,
       };
     } catch (err) {
-      console.warn("Storage upload notice (persisting attachment locally):", err);
+      console.warn("Firebase Storage unavailable (persisting attachment for story filing):", err);
       return {
         name: file.name,
         url: base64DataUrl || localBlobUrl,
@@ -441,6 +396,44 @@ export default function SubmitFiling() {
     }
   };
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    const runLoad = async () => {
+      try {
+        await loadData();
+      } catch (err) {
+        console.warn("Initial filing load notice:", err);
+      }
+    };
+    runLoad();
+
+    const handleUpdate = () => {
+      if (!isCancelled) {
+        loadData().catch(() => {});
+      }
+    };
+
+    const handleWindowPaste = async (e: ClipboardEvent) => {
+      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+        // Prevent default paste if files were detected in clipboard
+        e.preventDefault();
+        await handleFilesSelected(e.clipboardData.files, "document");
+      }
+    };
+
+    window.addEventListener("storage", handleUpdate);
+    window.addEventListener("byline:data_updated", handleUpdate);
+    window.addEventListener("paste", handleWindowPaste);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener("storage", handleUpdate);
+      window.removeEventListener("byline:data_updated", handleUpdate);
+      window.removeEventListener("paste", handleWindowPaste);
+    };
+  }, []);
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -522,7 +515,7 @@ export default function SubmitFiling() {
 
         // 1. Update Firestore
         try {
-          const cleanDoc = sanitizeFirestoreDoc(updatedSub);
+          const cleanDoc = prepareSubmissionForFirestore(updatedSub);
           await setDoc(doc(db, "submissions", editingSubId), cleanDoc);
           if (targetAsgId) {
             try {
@@ -532,7 +525,13 @@ export default function SubmitFiling() {
             }
           }
         } catch (fsErr) {
-          console.warn("Firestore update submission notice:", fsErr);
+          console.warn("First Firestore save attempt notice, retrying with lightweight doc:", fsErr);
+          try {
+            const strippedDoc = prepareLightweightSubmissionForFirestore(updatedSub);
+            await setDoc(doc(db, "submissions", editingSubId), strippedDoc);
+          } catch (retryErr) {
+            console.error("Critical Firestore write failure:", retryErr);
+          }
         }
 
         // 2. Update local storage
@@ -594,7 +593,7 @@ export default function SubmitFiling() {
 
         // 1. Save to Firestore
         try {
-          const cleanDoc = sanitizeFirestoreDoc(newSub);
+          const cleanDoc = prepareSubmissionForFirestore(newSub);
           await setDoc(doc(db, "submissions", subId), cleanDoc);
           if (targetAsgId) {
             try {
@@ -604,7 +603,13 @@ export default function SubmitFiling() {
             }
           }
         } catch (fsErr) {
-          console.warn("Firestore save submission notice:", fsErr);
+          console.warn("First Firestore save attempt notice, retrying with lightweight doc:", fsErr);
+          try {
+            const strippedDoc = prepareLightweightSubmissionForFirestore(newSub);
+            await setDoc(doc(db, "submissions", subId), strippedDoc);
+          } catch (retryErr) {
+            console.error("Critical Firestore write failure:", retryErr);
+          }
         }
 
         // 2. Save to local storage
@@ -653,13 +658,18 @@ export default function SubmitFiling() {
 
   // Filter available assignments for this user
   const availableAssignments = assignments.filter((a) => {
-    if (user.role !== "correspondent") return true;
+    if (!user || user.role !== "correspondent") return true;
     const asgEmail = (a.correspondentEmail || "").toLowerCase().trim();
     if (asgEmail && userEmailLower && asgEmail === userEmailLower) return true;
     if (a.correspondentId && (a.correspondentId === user.uid || a.correspondentId === userEmailLower)) return true;
     if (a.correspondentName && user.name && a.correspondentName.toLowerCase() === user.name.toLowerCase()) return true;
     return false;
   });
+
+  // Only Correspondents and Super Admin can submit filings
+  if (!user || !["correspondent", "super_admin"].includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">

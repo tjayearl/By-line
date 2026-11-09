@@ -40,7 +40,9 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
     let isCancelled = false;
 
     if (file && isWordFile(file) && file.name.toLowerCase().endsWith(".docx")) {
-      setLoadingWord(true);
+      queueMicrotask(() => {
+        if (!isCancelled) setLoadingWord(true);
+      });
       extractDocxFromStoredDoc(file)
         .then((res) => {
           if (!isCancelled) {
@@ -56,8 +58,12 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
           }
         });
     } else {
-      setWordExtract(null);
-      setLoadingWord(false);
+      queueMicrotask(() => {
+        if (!isCancelled) {
+          setWordExtract(null);
+          setLoadingWord(false);
+        }
+      });
     }
 
     // Escape key listener to close modal
@@ -194,40 +200,66 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
           {/* Image Viewer */}
           {isImage && (
             <div className="w-full h-full flex flex-col items-center justify-center min-h-[450px] relative overflow-hidden">
-              <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md p-1 rounded-xl border border-slate-700">
-                <button
-                  onClick={() => setZoomLevel((z) => Math.max(0.5, z - 0.25))}
-                  className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition"
-                  title="Zoom Out"
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <span className="text-xs text-slate-300 font-mono px-1">{Math.round(zoomLevel * 100)}%</span>
-                <button
-                  onClick={() => setZoomLevel((z) => Math.min(3, z + 0.25))}
-                  className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition"
-                  title="Zoom In"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setZoomLevel(1)}
-                  className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition"
-                  title="Reset Zoom"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                </button>
-              </div>
+              {safeUrl && !loadError ? (
+                <>
+                  <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md p-1 rounded-xl border border-slate-700">
+                    <button
+                      onClick={() => setZoomLevel((z) => Math.max(0.5, z - 0.25))}
+                      className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition"
+                      title="Zoom Out"
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs text-slate-300 font-mono px-1">{Math.round(zoomLevel * 100)}%</span>
+                    <button
+                      onClick={() => setZoomLevel((z) => Math.min(3, z + 0.25))}
+                      className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition"
+                      title="Zoom In"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setZoomLevel(1)}
+                      className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 transition"
+                      title="Reset Zoom"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </button>
+                  </div>
 
-              <div className="overflow-auto max-h-[70vh] flex items-center justify-center p-4">
-                <img
-                  src={safeUrl}
-                  alt={file.name}
-                  style={{ transform: `scale(${zoomLevel})`, transition: "transform 0.15s ease-out" }}
-                  className="max-h-[65vh] max-w-full rounded-lg shadow-2xl object-contain"
-                  onError={() => setLoadError(true)}
-                />
-              </div>
+                  <div className="overflow-auto max-h-[70vh] flex items-center justify-center p-4">
+                    <img
+                      src={safeUrl}
+                      alt={file.name}
+                      style={{ transform: `scale(${zoomLevel})`, transition: "transform 0.15s ease-out" }}
+                      className="max-h-[65vh] max-w-full rounded-lg shadow-2xl object-contain"
+                      onError={() => setLoadError(true)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="text-center p-8 text-white space-y-4 max-w-md">
+                  <AlertTriangle className="w-12 h-12 text-brand-gold mx-auto" />
+                  <div>
+                    <h4 className="font-bold text-base">Image Preview Unavailable</h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {loadError
+                        ? "Failed to render this image stream. Click below to try downloading the original file."
+                        : "This attachment was stored locally on the reporting device or cloud upload timed out."}
+                    </p>
+                  </div>
+                  {safeUrl && (
+                    <div className="flex justify-center gap-3 pt-2">
+                      <button
+                        onClick={handleDownload}
+                        className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4" /> Download Image
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -241,37 +273,69 @@ export default function MediaPreviewModal({ file, onClose }: MediaPreviewModalPr
                 <h4 className="font-bold text-white text-base truncate">{file.name}</h4>
                 <p className="text-xs text-slate-400 mt-1">Field Audio Dispatch &bull; Soundbite Broadcast Master</p>
               </div>
-              <audio controls src={safeUrl} className="w-full rounded-xl" autoPlay={false}>
-                Your browser does not support audio playback.
-              </audio>
-              <div className="flex justify-center gap-3 pt-2">
-                <button
-                  onClick={handleDownload}
-                  className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" /> Download Audio File
-                </button>
-              </div>
+              {safeUrl && !loadError ? (
+                <>
+                  <audio
+                    controls
+                    src={safeUrl}
+                    className="w-full rounded-xl"
+                    autoPlay={false}
+                    onError={() => setLoadError(true)}
+                  >
+                    Your browser does not support audio playback.
+                  </audio>
+                  <div className="flex justify-center gap-3 pt-2">
+                    <button
+                      onClick={handleDownload}
+                      className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" /> Download Audio File
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs text-slate-300 bg-slate-900/60 p-4 rounded-xl border border-slate-700 space-y-2">
+                  <p>Audio streaming unavailable for this dispatch.</p>
+                  <p className="text-[11px] text-slate-400">
+                    The audio was stored locally on the reporting device or cloud storage upload timed out.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
           {/* Video Player */}
           {isVideo && (
             <div className="w-full max-w-3xl flex flex-col items-center justify-center space-y-4">
-              <video
-                controls
-                src={safeUrl}
-                className="w-full max-h-[65vh] rounded-xl shadow-2xl bg-black border border-slate-800"
-                autoPlay={false}
-              >
-                Your browser does not support video playback.
-              </video>
-              <button
-                onClick={handleDownload}
-                className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer"
-              >
-                <Download className="w-4 h-4" /> Download Video Footage
-              </button>
+              {safeUrl && !loadError ? (
+                <>
+                  <video
+                    controls
+                    src={safeUrl}
+                    className="w-full max-h-[65vh] rounded-xl shadow-2xl bg-black border border-slate-800"
+                    autoPlay={false}
+                    onError={() => setLoadError(true)}
+                  >
+                    Your browser does not support video playback.
+                  </video>
+                  <button
+                    onClick={handleDownload}
+                    className="bg-brand-gold hover:bg-yellow-500 text-slate-900 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" /> Download Video Footage
+                  </button>
+                </>
+              ) : (
+                <div className="text-center p-8 text-white space-y-4 max-w-md bg-slate-800 rounded-2xl border border-slate-700">
+                  <AlertTriangle className="w-12 h-12 text-brand-gold mx-auto" />
+                  <div>
+                    <h4 className="font-bold text-base">Video Footage Unavailable</h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      High-resolution video footage was stored on the correspondent's device or the cloud upload timed out. Correspondents can also provide a WeTransfer link.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
